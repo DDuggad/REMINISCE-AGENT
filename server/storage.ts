@@ -1,38 +1,111 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
+import { db } from "./db";
+import {
+  users, memories, routines, medications, emergencyLogs,
+  type User, type InsertUser, type InsertMemory, type InsertRoutine, type InsertMedication
+} from "@shared/schema";
+import { eq, desc } from "drizzle-orm";
+import session from "express-session";
+import connectPg from "connect-pg-simple";
+import { pool } from "./db";
 
-// modify the interface with any CRUD methods
-// you might need
+const PostgresSessionStore = connectPg(session);
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
+  getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+
+  createMemory(memory: InsertMemory): Promise<typeof memories.$inferSelect>;
+  getMemories(): Promise<typeof memories.$inferSelect[]>;
+
+  createRoutine(routine: InsertRoutine): Promise<typeof routines.$inferSelect>;
+  getRoutines(): Promise<typeof routines.$inferSelect[]>;
+  toggleRoutine(id: number): Promise<typeof routines.$inferSelect | undefined>;
+
+  createMedication(med: InsertMedication): Promise<typeof medications.$inferSelect>;
+  getMedications(): Promise<typeof medications.$inferSelect[]>;
+  toggleMedication(id: number): Promise<typeof medications.$inferSelect | undefined>;
+
+  triggerEmergency(): Promise<typeof emergencyLogs.$inferSelect>;
+  getEmergencyLogs(): Promise<typeof emergencyLogs.$inferSelect[]>;
+
+  sessionStore: session.Store;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
+export class DatabaseStorage implements IStorage {
+  sessionStore: session.Store;
 
   constructor() {
-    this.users = new Map();
+    this.sessionStore = new PostgresSessionStore({
+      pool,
+      createTableIfMissing: true,
+    });
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async createUser(user: InsertUser): Promise<User> {
+    const [newUser] = await db.insert(users).values(user).returning();
+    return newUser;
+  }
+
+  async createMemory(memory: InsertMemory): Promise<typeof memories.$inferSelect> {
+    const [newMemory] = await db.insert(memories).values(memory).returning();
+    return newMemory;
+  }
+
+  async getMemories(): Promise<typeof memories.$inferSelect[]> {
+    return await db.select().from(memories).orderBy(desc(memories.createdAt));
+  }
+
+  async createRoutine(routine: InsertRoutine): Promise<typeof routines.$inferSelect> {
+    const [newRoutine] = await db.insert(routines).values(routine).returning();
+    return newRoutine;
+  }
+
+  async getRoutines(): Promise<typeof routines.$inferSelect[]> {
+    return await db.select().from(routines);
+  }
+
+  async toggleRoutine(id: number): Promise<typeof routines.$inferSelect | undefined> {
+    const [routine] = await db.select().from(routines).where(eq(routines.id, id));
+    if (!routine) return undefined;
+    const [updated] = await db.update(routines).set({ isCompleted: !routine.isCompleted }).where(eq(routines.id, id)).returning();
+    return updated;
+  }
+
+  async createMedication(med: InsertMedication): Promise<typeof medications.$inferSelect> {
+    const [newMed] = await db.insert(medications).values(med).returning();
+    return newMed;
+  }
+
+  async getMedications(): Promise<typeof medications.$inferSelect[]> {
+    return await db.select().from(medications);
+  }
+
+  async toggleMedication(id: number): Promise<typeof medications.$inferSelect | undefined> {
+    const [med] = await db.select().from(medications).where(eq(medications.id, id));
+    if (!med) return undefined;
+    const [updated] = await db.update(medications).set({ taken: !med.taken }).where(eq(medications.id, id)).returning();
+    return updated;
+  }
+
+  async triggerEmergency(): Promise<typeof emergencyLogs.$inferSelect> {
+    const [log] = await db.insert(emergencyLogs).values({}).returning();
+    return log;
+  }
+
+  async getEmergencyLogs(): Promise<typeof emergencyLogs.$inferSelect[]> {
+    return await db.select().from(emergencyLogs).orderBy(desc(emergencyLogs.timestamp));
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
