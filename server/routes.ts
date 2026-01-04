@@ -32,25 +32,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   await seedDatabase();
   setupAuth(app);
 
+  // Helper to ensure data isolation
+  const verifyPatientAccess = async (req: any, patientId: number) => {
+    if (req.user.role === 'patient') {
+      return req.user.id === patientId;
+    }
+    // If caretaker, ensure the patient belongs to them
+    const patient = await storage.getUser(patientId);
+    return patient?.caretakerId === req.user.id;
+  };
+
   // Helper to get patientId
-  const getTargetPatientId = (req: any) => {
+  const getTargetPatientId = async (req: any) => {
     if (req.user?.role === 'patient') return req.user.id;
-    // For caretaker, use query param or first patient (logic can be improved)
-    // For MVP, if caretaker, we expect patientId in query or body, or we fail/return empty if strictly scoped.
-    // Here we allow passing patientId query param.
     const queryPatientId = req.query.patientId ? Number(req.query.patientId) : undefined;
-    return queryPatientId; 
+    if (queryPatientId) {
+      const hasAccess = await verifyPatientAccess(req, queryPatientId);
+      return hasAccess ? queryPatientId : undefined;
+    }
+    return undefined;
   };
 
   // Memories
   app.get(api.memories.list.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    const patientId = getTargetPatientId(req);
-    if (!patientId && req.user.role === 'caretaker') {
-       // Ideally fetch all patients or require selection. returning empty for safety if no ID.
-       return res.json([]); 
-    }
-    if (!patientId) return res.sendStatus(400);
+    const patientId = await getTargetPatientId(req);
+    if (!patientId) return res.json([]);
 
     const memories = await storage.getMemories(patientId);
     res.json(memories);
@@ -96,7 +103,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Routines
   app.get(api.routines.list.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    const patientId = getTargetPatientId(req);
+    const patientId = await getTargetPatientId(req);
     if (!patientId) return res.json([]);
     const routines = await storage.getRoutines(patientId);
     res.json(routines);
@@ -126,7 +133,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Medications
   app.get(api.medications.list.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    const patientId = getTargetPatientId(req);
+    const patientId = await getTargetPatientId(req);
     if (!patientId) return res.json([]);
     const meds = await storage.getMedications(patientId);
     res.json(meds);
@@ -156,8 +163,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Emergency
   app.get(api.emergency.list.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    // Caretakers see logs for their patients. Patients see their own logs.
-    const patientId = getTargetPatientId(req);
+    const patientId = await getTargetPatientId(req);
     if (!patientId) return res.json([]);
     const logs = await storage.getEmergencyLogs(patientId);
     res.json(logs);
@@ -165,7 +171,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.post(api.emergency.trigger.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    // Usually triggered by patient
+    if (req.user.role !== 'patient') return res.status(403).send("Only patients can trigger SOS");
+    
     const patientId = req.user.id; 
     const log = await storage.triggerEmergency(patientId);
     res.status(201).json(log);

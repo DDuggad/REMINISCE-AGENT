@@ -24,6 +24,7 @@ export const routines = pgTable("routines", {
   id: serial("id").primaryKey(),
   patientId: integer("patient_id").notNull(),
   task: text("task").notNull(),
+  time: text("time"), // Added for routine tracking
   isCompleted: boolean("is_completed").default(false),
 });
 
@@ -32,6 +33,7 @@ export const medications = pgTable("medications", {
   patientId: integer("patient_id").notNull(),
   name: text("name").notNull(),
   time: text("time").notNull(), // e.g. "08:00 AM"
+  dosage: text("dosage"), // Added for detail
   taken: boolean("taken").default(false),
 });
 
@@ -39,6 +41,7 @@ export const emergencyLogs = pgTable("emergency_logs", {
   id: serial("id").primaryKey(),
   patientId: integer("patient_id").notNull(),
   timestamp: timestamp("timestamp").defaultNow(),
+  status: text("status").default("High Alert"), // 'High Alert' for SOS
   resolved: boolean("resolved").default(false),
 });
 
