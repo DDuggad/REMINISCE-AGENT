@@ -3,7 +3,7 @@ import {
   users, memories, routines, medications, emergencyLogs,
   type User, type InsertUser, type InsertMemory, type InsertRoutine, type InsertMedication
 } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -15,19 +15,20 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
 
+  // Scoped by patientId
   createMemory(memory: InsertMemory): Promise<typeof memories.$inferSelect>;
-  getMemories(): Promise<typeof memories.$inferSelect[]>;
+  getMemories(patientId: number): Promise<typeof memories.$inferSelect[]>;
 
   createRoutine(routine: InsertRoutine): Promise<typeof routines.$inferSelect>;
-  getRoutines(): Promise<typeof routines.$inferSelect[]>;
+  getRoutines(patientId: number): Promise<typeof routines.$inferSelect[]>;
   toggleRoutine(id: number): Promise<typeof routines.$inferSelect | undefined>;
 
   createMedication(med: InsertMedication): Promise<typeof medications.$inferSelect>;
-  getMedications(): Promise<typeof medications.$inferSelect[]>;
+  getMedications(patientId: number): Promise<typeof medications.$inferSelect[]>;
   toggleMedication(id: number): Promise<typeof medications.$inferSelect | undefined>;
 
-  triggerEmergency(): Promise<typeof emergencyLogs.$inferSelect>;
-  getEmergencyLogs(): Promise<typeof emergencyLogs.$inferSelect[]>;
+  triggerEmergency(patientId: number): Promise<typeof emergencyLogs.$inferSelect>;
+  getEmergencyLogs(patientId: number): Promise<typeof emergencyLogs.$inferSelect[]>;
 
   sessionStore: session.Store;
 }
@@ -62,8 +63,8 @@ export class DatabaseStorage implements IStorage {
     return newMemory;
   }
 
-  async getMemories(): Promise<typeof memories.$inferSelect[]> {
-    return await db.select().from(memories).orderBy(desc(memories.createdAt));
+  async getMemories(patientId: number): Promise<typeof memories.$inferSelect[]> {
+    return await db.select().from(memories).where(eq(memories.patientId, patientId)).orderBy(desc(memories.createdAt));
   }
 
   async createRoutine(routine: InsertRoutine): Promise<typeof routines.$inferSelect> {
@@ -71,8 +72,8 @@ export class DatabaseStorage implements IStorage {
     return newRoutine;
   }
 
-  async getRoutines(): Promise<typeof routines.$inferSelect[]> {
-    return await db.select().from(routines);
+  async getRoutines(patientId: number): Promise<typeof routines.$inferSelect[]> {
+    return await db.select().from(routines).where(eq(routines.patientId, patientId));
   }
 
   async toggleRoutine(id: number): Promise<typeof routines.$inferSelect | undefined> {
@@ -87,8 +88,8 @@ export class DatabaseStorage implements IStorage {
     return newMed;
   }
 
-  async getMedications(): Promise<typeof medications.$inferSelect[]> {
-    return await db.select().from(medications);
+  async getMedications(patientId: number): Promise<typeof medications.$inferSelect[]> {
+    return await db.select().from(medications).where(eq(medications.patientId, patientId));
   }
 
   async toggleMedication(id: number): Promise<typeof medications.$inferSelect | undefined> {
@@ -98,13 +99,13 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async triggerEmergency(): Promise<typeof emergencyLogs.$inferSelect> {
-    const [log] = await db.insert(emergencyLogs).values({}).returning();
+  async triggerEmergency(patientId: number): Promise<typeof emergencyLogs.$inferSelect> {
+    const [log] = await db.insert(emergencyLogs).values({ patientId }).returning();
     return log;
   }
 
-  async getEmergencyLogs(): Promise<typeof emergencyLogs.$inferSelect[]> {
-    return await db.select().from(emergencyLogs).orderBy(desc(emergencyLogs.timestamp));
+  async getEmergencyLogs(patientId: number): Promise<typeof emergencyLogs.$inferSelect[]> {
+    return await db.select().from(emergencyLogs).where(eq(emergencyLogs.patientId, patientId)).orderBy(desc(emergencyLogs.timestamp));
   }
 }
 

@@ -5,26 +5,26 @@ import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import { analyzeImageWithVision, generateMemoryPrompt } from "./azure_services";
-
 import { hashPassword } from "./auth";
 
 async function seedDatabase() {
   const existingUser = await storage.getUserByUsername("caretaker");
   if (!existingUser) {
     const password = await hashPassword("password123");
-    await storage.createUser({ username: "caretaker", password, role: "caretaker" });
-    await storage.createUser({ username: "patient", password, role: "patient" });
+    const caretaker = await storage.createUser({ username: "caretaker", password, role: "caretaker" });
+    const patient = await storage.createUser({ username: "patient", password, role: "patient", caretakerId: caretaker.id });
     
     await storage.createMemory({
+      patientId: patient.id,
       imageUrl: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d",
-      description: "Family picnic at the park, 1985",
+      description: "Family picnic at the park, 1985. Tags: park, family, picnic",
       aiQuestion: "Who is holding the frisbee in this picture?"
     });
 
-    await storage.createRoutine({ task: "Morning Walk", isCompleted: false });
-    await storage.createRoutine({ task: "Drink Water", isCompleted: true });
+    await storage.createRoutine({ patientId: patient.id, task: "Morning Walk", isCompleted: false });
+    await storage.createRoutine({ patientId: patient.id, task: "Drink Water", isCompleted: true });
 
-    await storage.createMedication({ name: "Aspirin", time: "08:00 AM", taken: false });
+    await storage.createMedication({ patientId: patient.id, name: "Aspirin", time: "08:00 AM", taken: false });
   }
 }
 
@@ -32,21 +32,54 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   await seedDatabase();
   setupAuth(app);
 
+  // Helper to get patientId
+  const getTargetPatientId = (req: any) => {
+    if (req.user?.role === 'patient') return req.user.id;
+    // For caretaker, use query param or first patient (logic can be improved)
+    // For MVP, if caretaker, we expect patientId in query or body, or we fail/return empty if strictly scoped.
+    // Here we allow passing patientId query param.
+    const queryPatientId = req.query.patientId ? Number(req.query.patientId) : undefined;
+    return queryPatientId; 
+  };
+
   // Memories
-  app.get(api.memories.list.path, async (_req, res) => {
-    const memories = await storage.getMemories();
+  app.get(api.memories.list.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const patientId = getTargetPatientId(req);
+    if (!patientId && req.user.role === 'caretaker') {
+       // Ideally fetch all patients or require selection. returning empty for safety if no ID.
+       return res.json([]); 
+    }
+    if (!patientId) return res.sendStatus(400);
+
+    const memories = await storage.getMemories(patientId);
     res.json(memories);
   });
 
   app.post(api.memories.create.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
       const input = api.memories.create.input.parse(req.body);
+      // Determine patient ID (must be provided in body if caretaker, or derived)
+      // The schema for creation doesn't enforce patientId in the Zod schema from *client* perspective if we omitted it, 
+      // but we updated schema.ts to include it in the table. 
+      // Let's assume the client sends it or we inject it.
+      // The shared schema omitted it? Yes. So we need to handle it.
+      
+      let targetPatientId = req.user.role === 'patient' ? req.user.id : (req.body as any).patientId;
+      if (!targetPatientId && req.user.role === 'caretaker') {
+         // Try to find a patient for this caretaker?
+         // For now, fail if not provided.
+         return res.status(400).json({message: "patientId required"});
+      }
+
       // Simulate AI analysis
       const description = await analyzeImageWithVision(input.imageUrl);
-      const aiQuestion = await generateMemoryPrompt(["placeholder", "tags"]);
+      const aiQuestion = await generateMemoryPrompt([description]); // simple pass-through
       
       const memory = await storage.createMemory({
         ...input,
+        patientId: targetPatientId,
         description: input.description || description,
         aiQuestion: aiQuestion
       });
@@ -61,15 +94,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Routines
-  app.get(api.routines.list.path, async (_req, res) => {
-    const routines = await storage.getRoutines();
+  app.get(api.routines.list.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const patientId = getTargetPatientId(req);
+    if (!patientId) return res.json([]);
+    const routines = await storage.getRoutines(patientId);
     res.json(routines);
   });
 
   app.post(api.routines.create.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
       const input = api.routines.create.input.parse(req.body);
-      const routine = await storage.createRoutine(input);
+      const patientId = req.user.role === 'patient' ? req.user.id : (req.body as any).patientId;
+      if (!patientId) return res.status(400).json({message: "patientId required"});
+
+      const routine = await storage.createRoutine({ ...input, patientId });
       res.status(201).json(routine);
     } catch (err) {
       res.status(400).json({ message: "Invalid input" });
@@ -77,21 +117,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.patch(api.routines.toggle.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const updated = await storage.toggleRoutine(Number(req.params.id));
     if (!updated) return res.status(404).json({ message: "Routine not found" });
     res.json(updated);
   });
 
   // Medications
-  app.get(api.medications.list.path, async (_req, res) => {
-    const meds = await storage.getMedications();
+  app.get(api.medications.list.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const patientId = getTargetPatientId(req);
+    if (!patientId) return res.json([]);
+    const meds = await storage.getMedications(patientId);
     res.json(meds);
   });
 
   app.post(api.medications.create.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
       const input = api.medications.create.input.parse(req.body);
-      const med = await storage.createMedication(input);
+      const patientId = req.user.role === 'patient' ? req.user.id : (req.body as any).patientId;
+      if (!patientId) return res.status(400).json({message: "patientId required"});
+
+      const med = await storage.createMedication({ ...input, patientId });
       res.status(201).json(med);
     } catch (err) {
       res.status(400).json({ message: "Invalid input" });
@@ -99,19 +147,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.patch(api.medications.toggle.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const updated = await storage.toggleMedication(Number(req.params.id));
     if (!updated) return res.status(404).json({ message: "Medication not found" });
     res.json(updated);
   });
 
   // Emergency
-  app.get(api.emergency.list.path, async (_req, res) => {
-    const logs = await storage.getEmergencyLogs();
+  app.get(api.emergency.list.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    // Caretakers see logs for their patients. Patients see their own logs.
+    const patientId = getTargetPatientId(req);
+    if (!patientId) return res.json([]);
+    const logs = await storage.getEmergencyLogs(patientId);
     res.json(logs);
   });
 
-  app.post(api.emergency.trigger.path, async (_req, res) => {
-    const log = await storage.triggerEmergency();
+  app.post(api.emergency.trigger.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    // Usually triggered by patient
+    const patientId = req.user.id; 
+    const log = await storage.triggerEmergency(patientId);
     res.status(201).json(log);
   });
 

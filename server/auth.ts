@@ -68,10 +68,23 @@ export function setupAuth(app: Express) {
         return res.status(400).send("Username already exists");
       }
 
+      let caretakerId: number | undefined;
+      if (req.body.role === 'patient') {
+        if (!req.body.caretakerUsername) {
+          return res.status(400).send("Caretaker username is required for patients");
+        }
+        const caretaker = await storage.getUserByUsername(req.body.caretakerUsername);
+        if (!caretaker) {
+          return res.status(400).send("Caretaker not found");
+        }
+        caretakerId = caretaker.id;
+      }
+
       const hashedPassword = await hashPassword(req.body.password);
       const user = await storage.createUser({
         ...req.body,
         password: hashedPassword,
+        caretakerId,
       });
 
       req.login(user, (err) => {
