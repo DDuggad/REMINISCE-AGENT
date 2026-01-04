@@ -39,7 +39,8 @@ export default function AuthPage() {
     },
   });
 
-  const role = form.watch("role");
+  const { register, handleSubmit, watch, formState: { errors } } = form;
+  const role = watch("role");
 
   const onSubmit = async (data: AuthFormData) => {
     try {
