@@ -42,6 +42,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return patient && patient.role === 'patient' && patient.caretakerId === req.user.id;
   };
 
+  app.get("/api/user/patients", async (req, res) => {
+    if (!req.isAuthenticated() || req.user.role !== 'caretaker') return res.sendStatus(401);
+    const myPatients = await storage.getPatientsForCaretaker(req.user.id);
+    res.json(myPatients);
+  });
+
   // Helper to get patientId
   const getTargetPatientId = async (req: any) => {
     if (req.user?.role === 'patient') return req.user.id;

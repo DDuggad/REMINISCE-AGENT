@@ -53,7 +53,8 @@ export default function AuthPage() {
           caretakerUsername: data.caretakerUsername
         });
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Error is handled by the mutation and toast
       console.error(error);
     }
   };

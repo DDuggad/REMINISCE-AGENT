@@ -29,33 +29,33 @@ export default function PatientDashboard() {
 
   return (
     <Layout variant="patient">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 patient-view">
         
         {/* LEFT COLUMN: Memory Hub */}
         <div className="space-y-8">
-          <section className="patient-card space-y-6">
-            <h2 className="patient-text flex items-center gap-4 text-primary">
-              <Heart className="w-10 h-10 fill-current" />
-              Memory of the Day
+          <section className="card-glass p-8 space-y-6">
+            <h2 className="flex items-center gap-4 text-[#1C4D8D] font-black text-5xl">
+              <Heart className="w-16 h-16 fill-current" />
+              Memory Hub
             </h2>
             
             {latestMemory ? (
-              <div className="space-y-6">
-                <div className="aspect-[4/3] w-full rounded-xl overflow-hidden border-4 border-primary/20 bg-black">
+              <div className="space-y-8">
+                <div className="aspect-[4/3] w-full rounded-3xl overflow-hidden border-8 border-[#4988C4]/20 bg-black shadow-2xl">
                   <img 
                     src={latestMemory.imageUrl} 
                     alt="Memory" 
                     className="w-full h-full object-contain"
                   />
                 </div>
-                <div className="bg-muted p-6 rounded-2xl border-2 border-primary/10">
-                  <p className="text-2xl md:text-3xl font-medium text-foreground leading-relaxed">
+                <div className="bg-[#E8F4F8] p-8 rounded-[32px] border-4 border-[#1C4D8D]/20 shadow-lg">
+                  <p className="text-4xl md:text-5xl font-bold text-[#0F2854] leading-tight">
                     "{latestMemory.description}"
                   </p>
                   {latestMemory.aiQuestion && (
-                    <div className="mt-6 pt-6 border-t border-primary/20">
-                      <p className="text-xl text-primary font-bold mb-2">Think about this:</p>
-                      <p className="text-xl md:text-2xl text-foreground/90 italic">
+                    <div className="mt-8 pt-8 border-t-4 border-[#1C4D8D]/20">
+                      <p className="text-2xl text-[#1C4D8D] font-black mb-4 uppercase tracking-wider">Think about this:</p>
+                      <p className="text-3xl md:text-4xl text-[#0F2854] italic font-medium leading-relaxed">
                         {latestMemory.aiQuestion}
                       </p>
                     </div>
@@ -63,91 +63,91 @@ export default function PatientDashboard() {
                 </div>
               </div>
             ) : (
-              <div className="h-64 flex items-center justify-center bg-muted rounded-2xl border-2 border-dashed border-muted-foreground/30">
-                <p className="text-2xl text-muted-foreground">No photos yet.</p>
+              <div className="h-80 flex items-center justify-center bg-[#E8F4F8] rounded-[32px] border-4 border-dashed border-[#4988C4]/30 shadow-inner">
+                <p className="text-4xl text-[#5D6D7E] font-bold">Waiting for memories...</p>
               </div>
             )}
           </section>
 
-          <section className="patient-card">
-            <h2 className="patient-text mb-6 text-primary">My Daily List</h2>
-            <div className="space-y-4">
+          <section className="card-glass p-8">
+            <h2 className="text-5xl font-black text-[#1C4D8D] mb-8 uppercase tracking-tight">Today's Routine</h2>
+            <div className="space-y-6">
               {routines?.map((routine) => (
                 <button
                   key={routine.id}
                   onClick={() => toggleRoutine.mutate(routine.id)}
                   className={cn(
-                    "w-full p-6 rounded-2xl border-4 text-left transition-all flex items-center justify-between group",
+                    "w-full p-8 rounded-[32px] border-8 text-left transition-all flex items-center justify-between active-elevate-2",
                     routine.isCompleted 
-                      ? "bg-green-900/30 border-green-500/50 opacity-60" 
-                      : "bg-muted border-muted-foreground/30 hover:border-primary hover:bg-muted/80"
+                      ? "bg-[#D5F4E6]/50 border-[#27AE60]/50 opacity-60" 
+                      : "bg-[#E8F4F8] border-[#4988C4]/30 hover:border-[#1C4D8D] hover:bg-white"
                   )}
                 >
                   <span className={cn(
-                    "text-2xl md:text-3xl font-medium",
-                    routine.isCompleted ? "text-green-500 line-through decoration-4" : "text-foreground"
+                    "text-4xl font-black",
+                    routine.isCompleted ? "text-[#27AE60] line-through decoration-8" : "text-[#0F2854]"
                   )}>
                     {routine.task}
                   </span>
                   <div className={cn(
-                    "w-12 h-12 rounded-full border-4 flex items-center justify-center transition-colors",
+                    "w-16 h-16 rounded-full border-8 flex items-center justify-center",
                     routine.isCompleted 
-                      ? "bg-green-500 border-green-500" 
-                      : "border-muted-foreground group-hover:border-primary"
+                      ? "bg-[#27AE60] border-[#27AE60]" 
+                      : "border-[#5D6D7E] group-hover:border-[#1C4D8D]"
                   )}>
-                    {routine.isCompleted && <Check className="w-8 h-8 text-black font-bold" />}
+                    {routine.isCompleted && <Check className="w-10 h-10 text-white stroke-[5px]" />}
                   </div>
                 </button>
               ))}
               {routines?.length === 0 && (
-                <p className="text-xl text-muted-foreground italic">Nothing to do today! Relax.</p>
+                <p className="text-3xl text-[#5D6D7E] italic font-bold text-center py-10">All done for today! Good job!</p>
               )}
             </div>
           </section>
         </div>
 
         {/* RIGHT COLUMN: Action Center */}
-        <div className="space-y-8 flex flex-col">
+        <div className="space-y-12 flex flex-col">
           
           {/* Voice Assistant */}
           <button 
             onClick={() => setShowVoiceUI(true)}
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-3xl p-8 shadow-xl transform active:scale-95 transition-all flex flex-col items-center gap-4 group border-b-8 border-blue-800 active:border-b-0 active:translate-y-2"
+            className="patient-button-voice w-full p-12 shadow-2xl flex flex-col items-center gap-8 group active-elevate-2"
           >
-            <div className="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Mic className="w-12 h-12 text-white" />
+            <div className="w-32 h-32 bg-white/20 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+              <Mic className="w-16 h-16 text-white" strokeWidth={3} />
             </div>
-            <span className="text-4xl font-bold tracking-wide">Talk to me</span>
+            <span className="text-5xl font-black uppercase tracking-widest">Talk to Assistant</span>
           </button>
 
-          {/* SOS Button - Takes up remaining vertical space or is massive */}
-          <div className="flex-1 min-h-[300px]">
+          {/* SOS Button */}
+          <div className="flex-1 min-h-[400px]">
             <AnimatePresence mode="wait">
               {sosActive ? (
                 <motion.div 
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
-                  className="h-full w-full bg-red-600 rounded-3xl p-8 flex flex-col items-center justify-center text-center animate-pulse-slow border-4 border-red-400 shadow-[0_0_50px_rgba(220,38,38,0.5)]"
+                  className="h-full w-full bg-[#E74C3C] rounded-[48px] p-12 flex flex-col items-center justify-center text-center border-[12px] border-white shadow-[0_0_80px_rgba(231,76,60,0.6)]"
                 >
-                  <AlertCircle className="w-32 h-32 text-white mb-6" />
-                  <h2 className="text-5xl md:text-6xl font-black text-white uppercase tracking-wider mb-4">
-                    HELP IS ON<br/>THE WAY
+                  <AlertCircle className="w-48 h-48 text-white mb-8 animate-bounce" strokeWidth={3} />
+                  <h2 className="text-7xl font-black text-white uppercase tracking-tighter leading-none mb-6">
+                    HELP IS<br/>COMING
                   </h2>
-                  <p className="text-2xl text-white/90 font-medium">Notified Caretaker</p>
+                  <p className="text-3xl text-white font-black uppercase tracking-widest">Alert Sent!</p>
                 </motion.div>
               ) : (
                 <button
                   onClick={handleSOS}
                   disabled={triggerEmergency.isPending}
-                  className="h-full w-full bg-destructive hover:bg-red-500 text-destructive-foreground rounded-3xl p-8 shadow-2xl transform active:scale-[0.98] transition-all flex flex-col items-center justify-center gap-6 border-b-[12px] border-red-900 active:border-b-0 active:translate-y-3"
+                  className="patient-button-sos h-full w-full rounded-[48px] flex flex-col items-center justify-center gap-10 shadow-[0_30px_60px_rgba(231,76,60,0.4)] active:translate-y-4"
                 >
-                  <AlertCircle className="w-32 h-32 md:w-40 md:h-40" />
-                  <span className="text-6xl md:text-8xl font-black tracking-widest uppercase">
+                  <AlertCircle className="w-48 h-48 md:w-56 md:h-56" strokeWidth={4} />
+                  <span className="text-[120px] font-black tracking-tighter leading-none">
                     SOS
                   </span>
-                  <span className="text-2xl font-bold opacity-80 uppercase tracking-widest">
-                    Emergency Help
+                  <span className="text-3xl font-black uppercase tracking-[1em] opacity-80">
+                    HELP
                   </span>
                 </button>
               )}

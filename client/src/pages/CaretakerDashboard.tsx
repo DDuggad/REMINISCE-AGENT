@@ -277,34 +277,157 @@ function EmergencyLogSection() {
 }
 
 export default function CaretakerDashboard() {
+  const { toast } = useToast();
+  const [activePatientId, setActivePatientId] = useState<number | null>(null);
+
+  // Fetch all patients linked to this caretaker
+  const { data: users } = useQuery<any[]>({
+    queryKey: ["/api/user/patients"],
+  });
+
+  const patientId = activePatientId || (users?.[0]?.id);
+
+  const { data: memories } = useQuery<Memory[]>({
+    queryKey: [api.memories.list.path, { patientId }],
+    enabled: !!patientId,
+  });
+
+  const { data: routines } = useQuery<Routine[]>({
+    queryKey: [api.routines.list.path, { patientId }],
+    enabled: !!patientId,
+  });
+
+  const { data: medications } = useQuery<Medication[]>({
+    queryKey: [api.medications.list.path, { patientId }],
+    enabled: !!patientId,
+  });
+
+  const { data: logs } = useQuery<EmergencyLog[]>({
+    queryKey: [api.emergency.list.path, { patientId }],
+    enabled: !!patientId,
+  });
+
+  const uploadMemory = useMutation({
+    mutationFn: async (url: string) => {
+      return await apiRequest("POST", api.memories.create.path, { imageUrl: url, patientId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.memories.list.path, { patientId }] });
+      toast({ title: "Memory uploaded" });
+    }
+  });
+
   return (
     <Layout variant="caretaker">
-      <div className="space-y-8">
-        <div>
-          <h1 className="text-3xl font-display font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500 mt-1">Overview of patient care and activities.</p>
-        </div>
-
-        {/* Bento Grid Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Content - Memories takes up full width initially */}
-          <div className="lg:col-span-3">
-            <MemorySection />
+      <div className="min-h-screen" style={{ 
+        background: 'linear-gradient(135deg, #F8FBFD 0%, #E8F4F8 100%)',
+        fontFamily: "'Plus Jakarta Sans', sans-serif"
+      }}>
+        <main className="space-y-8">
+          {/* Patient Selection Card */}
+          <div className="card-glass p-6 border-2 border-[#E8F4F8] shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="inline-block px-3 py-1 rounded-full mb-3 bg-[#E8F4F8]">
+                  <p className="text-xs font-bold text-[#1C4D8D]">SELECT PATIENT</p>
+                </div>
+                <div className="flex gap-4">
+                  {users?.map(u => (
+                    <Button 
+                      key={u.id}
+                      onClick={() => setActivePatientId(u.id)}
+                      variant={patientId === u.id ? "default" : "outline"}
+                      className={`rounded-xl px-6 ${patientId === u.id ? 'btn-primary' : 'border-[#4988C4] text-[#1C4D8D]'}`}
+                    >
+                      {u.username}
+                    </Button>
+                  ))}
+                  {users?.length === 0 && <p className="text-sm text-slate-500">No patients linked to your account.</p>}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Activity Trackers */}
-          <div className="lg:col-span-1 min-h-[400px]">
-            <RoutineSection />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Emergency Section */}
+            <div className="card-glass p-8 border-2 border-[#E74C3C] shadow-xl hover-elevate transition-all">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-2xl bg-[#FADBD8] flex items-center justify-center shadow-lg">
+                  <AlertCircle className="w-8 h-8 text-[#E74C3C]" strokeWidth={2.5} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-[#0F2854]">Emergency Protocol</h3>
+                  <p className="text-sm text-[#5D6D7E]">Active alerts and critical info</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {logs?.length ? logs.slice(0, 3).map(log => (
+                  <div key={log.id} className="flex items-center justify-between p-4 rounded-2xl bg-[#FADBD8]/50 border-2 border-[#E74C3C]/20">
+                    <span className="font-bold text-[#C0392B]">SOS TRIGGERED</span>
+                    <span className="text-sm font-medium text-[#5D6D7E]">{new Date(log.timestamp!).toLocaleString()}</span>
+                  </div>
+                )) : (
+                  <p className="text-[#5D6D7E] font-medium">No recent emergency alerts.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Routine Tracker */}
+            <div className="card-glass p-8 border-2 border-[#4988C4] shadow-xl hover-elevate transition-all">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-2xl bg-[#E8F4F8] flex items-center justify-center shadow-lg">
+                  <Activity className="w-8 h-8 text-[#1C4D8D]" strokeWidth={2.5} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-[#0F2854]">Daily Routine</h3>
+                  <p className="text-sm text-[#5D6D7E]">Track patient daily activities</p>
+                </div>
+              </div>
+              <div className="space-y-4">
+                {routines?.map(r => (
+                  <div key={r.id} className="flex items-center justify-between p-4 rounded-2xl bg-white border-2 border-[#E8F4F8]">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-3 h-3 rounded-full ${r.isCompleted ? 'bg-[#27AE60]' : 'bg-[#E67E22]'}`} />
+                      <span className="font-bold text-[#0F2854]">{r.task}</span>
+                    </div>
+                    <span className={`text-sm font-bold ${r.isCompleted ? 'text-[#27AE60]' : 'text-[#E67E22]'}`}>
+                      {r.isCompleted ? "Completed" : "Pending"}
+                    </span>
+                  </div>
+                ))}
+                {routines?.length === 0 && <p className="text-slate-400 text-sm italic">No routines scheduled.</p>}
+              </div>
+            </div>
           </div>
-          <div className="lg:col-span-1 min-h-[400px]">
-            <MedicationSection />
+
+          {/* Medicine Scheduler */}
+          <div className="card-glass p-8 border-2 border-[#27AE60] shadow-xl">
+            <div className="flex items-center gap-4 mb-8">
+              <div className="w-14 h-14 rounded-2xl bg-[#D5F4E6] flex items-center justify-center shadow-lg">
+                <Pill className="w-8 h-8 text-[#27AE60]" strokeWidth={2.5} />
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-[#0F2854]">Medicine Scheduler</h3>
+                <p className="text-sm text-[#5D6D7E]">Manage dosage and schedules</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {medications?.map(m => (
+                <div key={m.id} className="p-6 rounded-3xl bg-white border-2 border-[#D5F4E6] shadow-md hover-elevate transition-all">
+                  <p className="text-xs font-bold text-[#1E8449] mb-1">TIME: {m.time}</p>
+                  <p className="text-xl font-bold text-[#0F2854] mb-2">{m.name}</p>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${m.taken ? 'bg-[#27AE60]' : 'bg-[#E74C3C]'}`} />
+                    <p className={`text-sm font-bold ${m.taken ? 'text-[#27AE60]' : 'text-[#E74C3C]'}`}>
+                      {m.taken ? "Taken" : "Missed"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {medications?.length === 0 && <p className="text-slate-400 text-sm italic">No medications scheduled.</p>}
+            </div>
           </div>
-          
-          {/* Emergency Log takes remaining space */}
-          <div className="lg:col-span-1">
-            <EmergencyLogSection />
-          </div>
-        </div>
+        </main>
       </div>
     </Layout>
   );

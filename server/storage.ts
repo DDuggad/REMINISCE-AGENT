@@ -29,7 +29,7 @@ export interface IStorage {
 
   triggerEmergency(patientId: number): Promise<typeof emergencyLogs.$inferSelect>;
   getEmergencyLogs(patientId: number): Promise<typeof emergencyLogs.$inferSelect[]>;
-
+  getPatientsForCaretaker(caretakerId: number): Promise<User[]>;
   sessionStore: session.Store;
 }
 
@@ -106,6 +106,10 @@ export class DatabaseStorage implements IStorage {
 
   async getEmergencyLogs(patientId: number): Promise<typeof emergencyLogs.$inferSelect[]> {
     return await db.select().from(emergencyLogs).where(eq(emergencyLogs.patientId, patientId)).orderBy(desc(emergencyLogs.timestamp));
+  }
+
+  async getPatientsForCaretaker(caretakerId: number): Promise<User[]> {
+    return await db.select().from(users).where(and(eq(users.caretakerId, caretakerId), eq(users.role, 'patient'))).orderBy(users.username);
   }
 }
 
