@@ -73,7 +73,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRoutines(patientId: number): Promise<typeof routines.$inferSelect[]> {
-    return await db.select().from(routines).where(eq(routines.patientId, patientId));
+    return await db.select().from(routines).where(eq(routines.patientId, patientId)).orderBy(desc(routines.id));
   }
 
   async toggleRoutine(id: number): Promise<typeof routines.$inferSelect | undefined> {
@@ -89,7 +89,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMedications(patientId: number): Promise<typeof medications.$inferSelect[]> {
-    return await db.select().from(medications).where(eq(medications.patientId, patientId));
+    return await db.select().from(medications).where(eq(medications.patientId, patientId)).orderBy(desc(medications.id));
   }
 
   async toggleMedication(id: number): Promise<typeof medications.$inferSelect | undefined> {

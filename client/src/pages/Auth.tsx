@@ -11,13 +11,22 @@ const authSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   role: z.enum(["caretaker", "patient"]).optional(),
+  caretakerUsername: z.string().optional(),
+}).refine((data) => {
+  if (data.role === "patient" && !data.caretakerUsername) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Caretaker username is required for patients",
+  path: ["caretakerUsername"],
 });
 
 type AuthFormData = z.infer<typeof authSchema>;
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
-  const { login, register } = useAuth();
+  const { login, register: registerUser } = useAuth();
   const [_, setLocation] = useLocation();
 
   const form = useForm<AuthFormData>({
@@ -26,22 +35,25 @@ export default function AuthPage() {
       username: "",
       password: "",
       role: "caretaker",
+      caretakerUsername: "",
     },
   });
+
+  const role = form.watch("role");
 
   const onSubmit = async (data: AuthFormData) => {
     try {
       if (isLogin) {
         await login.mutateAsync({ username: data.username, password: data.password });
       } else {
-        await register.mutateAsync({ 
+        await registerUser.mutateAsync({ 
           username: data.username, 
           password: data.password, 
-          role: data.role || "caretaker" 
+          role: data.role || "caretaker",
+          caretakerUsername: data.caretakerUsername
         });
       }
     } catch (error) {
-      // Error is handled by the mutation and toast
       console.error(error);
     }
   };
@@ -147,6 +159,28 @@ export default function AuthPage() {
                         </label>
                       </div>
                     </div>
+
+                    <AnimatePresence>
+                      {role === "patient" && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="space-y-2 pt-4"
+                        >
+                          <label className="text-sm font-medium text-slate-700">Caretaker Username *</label>
+                          <input
+                            {...form.register("caretakerUsername")}
+                            className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all placeholder:text-slate-400"
+                            placeholder="Link to your caretaker"
+                          />
+                          {form.formState.errors.caretakerUsername && (
+                            <p className="text-sm text-destructive">{form.formState.errors.caretakerUsername.message}</p>
+                          )}
+                          <p className="text-xs text-muted-foreground">Ask your caretaker for their username to link your accounts.</p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </motion.div>
                 )}
               </AnimatePresence>

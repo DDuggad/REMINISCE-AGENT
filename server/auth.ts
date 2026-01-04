@@ -75,7 +75,7 @@ export function setupAuth(app: Express) {
         }
         const caretaker = await storage.getUserByUsername(req.body.caretakerUsername);
         if (!caretaker) {
-          return res.status(400).send("Caretaker not found");
+          return res.status(400).send("The specified Caretaker username does not exist. Please check the spelling and try again.");
         }
         caretakerId = caretaker.id;
       }

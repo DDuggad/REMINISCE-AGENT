@@ -39,7 +39,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     // If caretaker, ensure the patient belongs to them
     const patient = await storage.getUser(patientId);
-    return patient?.caretakerId === req.user.id;
+    return patient && patient.role === 'patient' && patient.caretakerId === req.user.id;
   };
 
   // Helper to get patientId
