@@ -77,7 +77,8 @@ export default function PatientDashboard() {
               });
             });
           } else if (command.includes('task') || command.includes('routine') || command.includes('schedule') || command.includes('what do i need') || command.includes('to do')) {
-            // Keep voice assistant open, scroll to tasks
+            // Close voice assistant and scroll to tasks
+            setShowVoiceUI(false);
             const section = document.querySelector('.routines-section');
             if (section) {
               section.scrollIntoView({ behavior: 'smooth', block: 'start' });
