@@ -4,9 +4,7 @@
 
 Built by Team ResQR | Powered by Microsoft Azure AI + Google Gemini
 
-🌐 **Live Demo:** [https://reminisce-agent.vercel.app/](https://reminisce-agent.vercel.app/)
-
-📡 **Backend API:** [https://reminisce-agent.onrender.com](https://reminisce-agent.onrender.com)
+🌐 **Live Application:** [https://reminisce-agent.onrender.com](https://reminisce-agent.onrender.com)
 
 ---
 
@@ -254,24 +252,30 @@ Reminisce-AI/
 
 ### Current Deployment Stack
 
-- **Frontend:** Vercel ([reminisce-agent.vercel.app](https://reminisce-agent.vercel.app/))
-- **Backend:** Render ([reminisce-agent.onrender.com](https://reminisce-agent.onrender.com))
+- **Full-Stack:** Render ([reminisce-agent.onrender.com](https://reminisce-agent.onrender.com))
 - **Database:** MongoDB Atlas (Cloud)
 
 ### Deploy Your Own
 
-**Frontend (Vercel):**
-1. Push code to GitHub
-2. Import project at [vercel.com](https://vercel.com)
-3. Set Framework: Vite
-4. Set Output Directory: `dist/public`
-5. Add environment variable: `VITE_API_URL=your-backend-url`
-
-**Backend (Render):**
+**Render (Full-Stack - Recommended):**
 1. Create Web Service at [render.com](https://render.com)
-2. Connect GitHub repository
-3. Use `render.yaml` for automatic configuration
-4. Add all environment variables from `.env`
+2. Connect your GitHub repository
+3. Render will auto-detect `render.yaml` configuration
+4. Add environment variables in Render dashboard:
+   - `DATABASE_URL` (MongoDB Atlas connection string)
+   - `DATABASE_NAME=reminisce_ai`
+   - `SESSION_SECRET` (random 64-char string)
+   - `AZURE_COMPUTER_VISION_ENDPOINT`
+   - `AZURE_COMPUTER_VISION_KEY`
+   - `AZURE_SPEECH_ENDPOINT`
+   - `AZURE_SPEECH_KEY`
+   - `AZURE_SPEECH_REGION`
+   - `GEMINI_API_KEY`
+5. Deploy - Render builds frontend + backend automatically
+
+**Alternative: Separate Frontend (Vercel) + Backend (Render):**
+- Frontend: Deploy to Vercel, set `VITE_API_URL` env variable
+- Backend: Follow steps above for Render
 
 ---
 
