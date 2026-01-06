@@ -1,72 +1,165 @@
 import axios from "axios";
-import { OpenAI } from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import * as sdk from "microsoft-cognitiveservices-speech-sdk";
+import * as fs from "fs";
+import * as path from "path";
 
-// Azure Computer Vision (F0 Tier Logic)
-const visionEndpoint = process.env.AZURE_VISION_ENDPOINT;
-const visionKey = process.env.AZURE_VISION_KEY;
+// Azure Computer Vision (Service 1 of 2)
+const visionEndpoint = (process.env.AZURE_COMPUTER_VISION_ENDPOINT || process.env.AZURE_VISION_ENDPOINT)?.replace(/\/$/, '');
+const visionKey = process.env.AZURE_COMPUTER_VISION_KEY || process.env.AZURE_VISION_KEY;
 
-// Azure OpenAI (Cost-effective Tier)
-let openai: OpenAI | null = null;
+// Google Gemini AI
+let genAI: GoogleGenerativeAI | null = null;
 
-if (process.env.AZURE_OPENAI_KEY && process.env.AZURE_OPENAI_ENDPOINT) {
-  openai = new OpenAI({
-    apiKey: process.env.AZURE_OPENAI_KEY,
-    baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-35-turbo'}`,
-    defaultQuery: { "api-version": "2023-05-15" },
-    defaultHeaders: { "api-key": process.env.AZURE_OPENAI_KEY },
-  });
+if (process.env.GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 }
 
-export async function analyzeImageWithVision(imageUrl: string): Promise<string> {
+// Azure Speech Service (Service 2 of 2)
+const speechKey = process.env.AZURE_SPEECH_KEY;
+const speechRegion = process.env.AZURE_SPEECH_REGION;
+
+export async function analyzeImageWithVision(imageUrl: string): Promise<{ caption: string; tags: string[] }> {
   if (!visionEndpoint || !visionKey) {
-    return "A beautiful memory to cherish.";
+    return { caption: "A beautiful memory to cherish.", tags: [] };
   }
 
   try {
     const response = await axios.post(
-      `${visionEndpoint}/computervision/imageanalysis:analyze?api-version=2023-02-01-preview&features=caption,tags`,
+      `${visionEndpoint}/computervision/imageanalysis:analyze?api-version=2024-02-01&features=caption,tags,description`,
       { url: imageUrl },
       {
         headers: {
           "Ocp-Apim-Subscription-Key": visionKey,
           "Content-Type": "application/json",
         },
-        timeout: 5000, // 5s timeout for stability
+        timeout: 10000,
       }
     );
-    const caption = response.data.captionResult?.text;
-    const tags = response.data.tagsResult?.values?.slice(0, 5).map((t: any) => t.name).join(", ");
     
-    if (!caption && !tags) return "A special moment together.";
-    return `${caption || 'Image'}${tags ? ' showing ' + tags : ''}`;
+    const caption = response.data.captionResult?.text || "A special moment captured in time.";
+    const tags = response.data.tagsResult?.values?.slice(0, 10).map((t: any) => t.name) || [];
+    
+    return { caption, tags };
   } catch (error) {
     console.error("Azure Vision Error:", error);
-    return "A special moment captured in time."; // Simplified view fallback
+    return { caption: "A special moment captured in time.", tags: [] };
   }
 }
 
-export async function generateMemoryPrompt(description: string): Promise<string> {
-  if (!openai) {
-    return "Do you remember this happy moment?";
+export async function generateMemoryQuestions(imageAnalysis: { caption: string; tags: string[] }, userDescription: string): Promise<string[]> {
+  if (!genAI) {
+    return [
+      "Who is in this photo?",
+      "When was this taken?",
+      "What were you doing here?",
+      "How did you feel in this moment?",
+      "What do you remember most about this day?"
+    ];
   }
 
   try {
-    const completion = await openai.chat.completions.create({
-      messages: [
-        { 
-          role: "system", 
-          content: "You are a gentle assistant for dementia patients. Based on the photo description, generate one short, simple, memory-sparking question (max 10 words). Avoid complex language." 
-        },
-        { role: "user", content: `Photo description: ${description}` }
-      ],
-      model: "gpt-3.5-turbo",
-      max_tokens: 50,
-      temperature: 0.7,
-    });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    
+    const prompt = `You are a compassionate dementia care assistant specializing in reminiscence therapy. Your role is to help elderly patients with memory challenges recall precious moments from their lives.
 
-    return completion.choices[0].message.content?.trim() || "Does this bring back any happy memories?";
+Photo Analysis:
+- Visual Description: ${imageAnalysis.caption}
+- Detected Elements: ${imageAnalysis.tags.join(", ")}
+- Patient's Context: ${userDescription}
+
+Generate exactly 5 memory-sparking questions that:
+1. Use simple, clear language (max 15 words each)
+2. Focus on emotions, people, and sensory details
+3. Are specific to this moment, not generic
+4. Help trigger episodic memories
+5. Are warm and encouraging in tone
+
+Format: Return only the 5 questions, numbered 1-5, one per line.`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    
+    const questions = text
+      .split("\n")
+      .filter(q => q.trim().length > 0)
+      .map(q => q.replace(/^[0-9]+[\.\)]\s*/, "").trim())
+      .filter(q => q.length > 10)
+      .slice(0, 5);
+    
+    if (questions.length >= 3) {
+      return questions;
+    }
+    
+    // Fallback questions
+    return [
+      "Who is with you in this photo?",
+      "Where was this special moment?",
+      "What were you celebrating or doing?",
+      "How did this make you feel?",
+      "What else do you remember about this day?"
+    ];
   } catch (error) {
-    console.error("Azure OpenAI Error:", error);
-    return "Do you remember this wonderful time?"; // Simplified view fallback
+    console.error("Gemini AI Error:", error);
+    return [
+      "Who is with you in this photo?",
+      "Where was this moment?",
+      "What were you celebrating?",
+      "How did this make you feel?",
+      "What else do you remember about this day?"
+    ];
+  }
+}
+
+export async function textToSpeech(text: string): Promise<{ audioUrl: string; filename: string }> {
+  if (!speechKey || !speechRegion) {
+    throw new Error("Azure Speech service not configured");
+  }
+
+  try {
+    const speechConfig = sdk.SpeechConfig.fromSubscription(speechKey, speechRegion);
+    
+    // Configure for high-quality, warm voice suitable for elderly patients
+    speechConfig.speechSynthesisVoiceName = "en-US-JennyNeural"; // Warm, friendly female voice
+    speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3;
+    
+    const filename = `speech-${Date.now()}.mp3`;
+    const audioDir = path.join(process.cwd(), "public", "audio");
+    
+    // Ensure audio directory exists
+    if (!fs.existsSync(audioDir)) {
+      fs.mkdirSync(audioDir, { recursive: true });
+    }
+    
+    const filepath = path.join(audioDir, filename);
+    const audioConfig = sdk.AudioConfig.fromAudioFileOutput(filepath);
+    
+    const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
+    
+    return new Promise((resolve, reject) => {
+      synthesizer.speakTextAsync(
+        text,
+        (result) => {
+          synthesizer.close();
+          
+          if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+            resolve({
+              audioUrl: `/audio/${filename}`,
+              filename: filename
+            });
+          } else {
+            reject(new Error(`Speech synthesis failed: ${result.errorDetails}`));
+          }
+        },
+        (error) => {
+          synthesizer.close();
+          reject(error);
+        }
+      );
+    });
+  } catch (error) {
+    console.error("Azure Speech Error:", error);
+    throw error;
   }
 }

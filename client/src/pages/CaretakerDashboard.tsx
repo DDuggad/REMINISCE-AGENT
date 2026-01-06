@@ -1,33 +1,145 @@
 import { useState } from "react";
 import { Layout } from "@/components/ui/Layout";
 import { useMemories, useCreateMemory, useRoutines, useCreateRoutine, useMedications, useCreateMedication, useEmergencyLogs } from "@/hooks/use-resources";
+import { useQuery } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
-import { Plus, Upload, CheckCircle, Clock, AlertTriangle, Pill, Activity, Calendar } from "lucide-react";
+import { Plus, Upload, CheckCircle, Clock, AlertTriangle, Pill, Activity, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
+import type { User } from "@shared/schema";
 
 // --- Components for specific sections ---
 
-function MemorySection() {
-  const { data: memories } = useMemories();
+function MemorySection({ patientId }: { patientId: number }) {
+  const { data: memories } = useMemories(patientId);
   const createMemory = useCreateMemory();
-  const [imageUrl, setImageUrl] = useState("");
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [isOpen, setIsOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadType, setUploadType] = useState<"url" | "file">("file");
+  const { toast } = useToast();
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    createMemory.mutate({ imageUrl, description, aiQuestion: "Who is in this photo?" }, {
-      onSuccess: () => {
-        setIsOpen(false);
-        setImageUrl("");
-        setDescription("");
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    // Validate all files
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Invalid file type",
+          description: `${file.name} is not an image file`,
+          variant: "destructive",
+        });
+        return;
       }
+
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: `${file.name} is larger than 5MB`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    setIsUploading(true);
+    try {
+      const uploadPromises = files.map(file => {
+        return new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            const imageData = event.target?.result as string;
+            
+            // Upload to server
+            const res = await fetch('/api/upload-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ imageData }),
+            });
+            
+            if (!res.ok) throw new Error('Upload failed');
+            
+            const data = await res.json();
+            resolve(data.imageUrl);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      });
+
+      const uploadedUrls = await Promise.all(uploadPromises);
+      setImageUrls(prev => [...prev, ...uploadedUrls]);
+      setIsUploading(false);
+      toast({
+        title: `${files.length} image${files.length > 1 ? 's' : ''} uploaded`,
+        description: "You can now add a description and save",
+      });
+    } catch (error) {
+      console.error('Upload error:', error);
+      setIsUploading(false);
+      toast({
+        title: "Upload failed",
+        description: "Please try again",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (imageUrls.length === 0) {
+      toast({
+        title: "Images required",
+        description: "Please upload at least one image",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Create a memory for each image
+    const promises = imageUrls.map(imageUrl => {
+      return new Promise((resolve, reject) => {
+        createMemory.mutate({ 
+          patientId,
+          imageUrl, 
+          description,
+        }, {
+          onSuccess: resolve,
+          onError: reject
+        });
+      });
     });
+
+    try {
+      await Promise.all(promises);
+      setIsOpen(false);
+      setImageUrls([]);
+      setDescription("");
+      toast({
+        title: `${imageUrls.length} memor${imageUrls.length > 1 ? 'ies' : 'y'} saved!`,
+        description: "All images have been added with AI-generated questions",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Failed to save some memories",
+        description: error.message || "Please try again",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setImageUrls(prev => prev.filter((_, i) => i !== index));
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
         <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
           <Upload className="w-6 h-6 text-primary" />
           Memory Bank
@@ -45,18 +157,80 @@ function MemorySection() {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           onSubmit={handleSubmit}
-          className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4"
+          className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-sm space-y-4"
         >
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Image URL</label>
-            <input
-              required
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 outline-none"
-              placeholder="https://example.com/photo.jpg"
-            />
+          <div className="flex gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => setUploadType("file")}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                uploadType === "file" ? "bg-primary text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              Upload Image
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadType("url")}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                uploadType === "url" ? "bg-primary text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              Image URL
+            </button>
           </div>
+
+          {uploadType === "file" ? (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Upload Photos (Multiple)</label>
+              <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-primary transition-colors">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="image-upload"
+                  disabled={isUploading}
+                  multiple
+                />
+                <label htmlFor="image-upload" className="cursor-pointer">
+                  <Upload className="w-12 h-12 mx-auto mb-2 text-slate-400" />
+                  <p className="text-sm text-slate-600">
+                    {isUploading ? "Uploading..." : imageUrls.length > 0 ? `✓ ${imageUrls.length} image(s) uploaded` : "Click to upload or drag and drop"}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">PNG, JPG, GIF up to 5MB each (multiple files)</p>
+                </label>
+              </div>
+              {imageUrls.length > 0 && (
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {imageUrls.map((url, index) => (
+                    <div key={index} className="relative group">
+                      <img src={url} alt={`Preview ${index + 1}`} className="w-full h-32 object-cover rounded-lg" />
+                      <button
+                        type="button"
+                        onClick={() => removeImage(index)}
+                        className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Image URL</label>
+              <input
+                required={uploadType === "url"}
+                value={imageUrls[0] || ""}
+                onChange={(e) => setImageUrls([e.target.value])}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 outline-none"
+                placeholder="https://example.com/photo.jpg"
+              />
+            </div>
+          )}
+          
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Description / Context</label>
             <textarea
@@ -64,23 +238,27 @@ function MemorySection() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary/20 outline-none h-24 resize-none"
-              placeholder="Who is this? When was it taken?"
+              placeholder="Who is this? When was it taken? Where was this?"
             />
           </div>
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setIsOpen(false)}
-              className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
+              onClick={() => { setIsOpen(false); setImageUrl(""); setDescription(""); }}
+              className="px-4 py-2 text-slate-600 hover:text-slate-900 font-medium"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={createMemory.isPending}
-              className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 disabled:opacity-50"
+              disabled={createMemory.isPending || isUploading}
+              className="px-6 py-2 bg-primary text-white rounded-lg font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {createMemory.isPending ? "Uploading..." : "Save Memory"}
+              {createMemory.isPending ? (
+                <><Clock className="w-4 h-4 animate-spin" /> Analyzing...</>
+              ) : (
+                <><CheckCircle className="w-4 h-4" /> Save Memory</>
+              )}
             </button>
           </div>
         </motion.form>
@@ -107,16 +285,22 @@ function MemorySection() {
   );
 }
 
-function RoutineSection() {
-  const { data: routines } = useRoutines();
+function RoutineSection({ patientId }: { patientId: number }) {
+  const { data: routines } = useRoutines(patientId);
   const createRoutine = useCreateRoutine();
   const [task, setTask] = useState("");
+  const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'once' | 'as-needed'>('daily');
+  const [time, setTime] = useState("");
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!task.trim()) return;
-    createRoutine.mutate({ task, isCompleted: false }, {
-      onSuccess: () => setTask("")
+    createRoutine.mutate({ patientId, task, time: time || undefined, frequency, type: 'task', isCompleted: false }, {
+      onSuccess: () => {
+        setTask("");
+        setTime("");
+        setFrequency('daily');
+      }
     });
   };
 
@@ -124,43 +308,85 @@ function RoutineSection() {
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 h-full flex flex-col">
       <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2 mb-6">
         <CheckCircle className="w-5 h-5 text-emerald-500" />
-        Daily Routine
+        Daily Routine & Tasks
       </h2>
       
       <div className="flex-1 overflow-y-auto space-y-3 min-h-[200px]">
         {routines?.map((routine) => (
-          <div key={routine.id} className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100">
-            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${routine.isCompleted ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
+          <div key={routine.id} className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100">
+            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5 flex-shrink-0 ${routine.isCompleted ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
               {routine.isCompleted && <CheckCircle className="w-3 h-3 text-white" />}
             </div>
-            <span className={`text-sm font-medium ${routine.isCompleted ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-              {routine.task}
-            </span>
+            <div className="flex-1">
+              <span className={`text-sm font-medium block ${routine.isCompleted ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                {routine.task}
+              </span>
+              <div className="flex gap-2 mt-1">
+                {routine.time && (
+                  <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                    <Clock className="w-3 h-3 inline mr-1" />
+                    {routine.time}
+                  </span>
+                )}
+                {routine.frequency && (
+                  <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded font-medium">
+                    {routine.frequency}
+                  </span>
+                )}
+                {routine.type === 'medication' && (
+                  <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded font-medium">
+                    <Pill className="w-3 h-3 inline mr-1" />
+                    Medicine
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         ))}
         {routines?.length === 0 && <p className="text-center text-slate-400 text-sm py-4">No routines set.</p>}
       </div>
 
-      <form onSubmit={handleAdd} className="mt-4 pt-4 border-t border-slate-100 flex gap-2">
+      <form onSubmit={handleAdd} className="mt-4 pt-4 border-t border-slate-100 space-y-3">
         <input
           value={task}
           onChange={(e) => setTask(e.target.value)}
           placeholder="Add new task..."
-          className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
+        <div className="flex gap-2">
+          <input
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            placeholder="Time (optional)"
+            className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          <select
+            value={frequency}
+            onChange={(e) => setFrequency(e.target.value as any)}
+            className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+          >
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="once">Once</option>
+            <option value="as-needed">As Needed</option>
+          </select>
+        </div>
         <button 
+          type="submit"
           disabled={createRoutine.isPending || !task.trim()}
-          className="p-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
           <Plus className="w-5 h-5" />
+          Add Task
         </button>
       </form>
     </div>
   );
 }
 
-function MedicationSection() {
-  const { data: medications } = useMedications();
+function MedicationSection({ patientId }: { patientId: number }) {
+  const { data: medications } = useMedications(patientId);
   const createMed = useCreateMedication();
   const [name, setName] = useState("");
   const [time, setTime] = useState("");
@@ -168,7 +394,7 @@ function MedicationSection() {
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !time.trim()) return;
-    createMed.mutate({ name, time, taken: false }, {
+    createMed.mutate({ patientId, name, time, taken: false }, {
       onSuccess: () => { setName(""); setTime(""); }
     });
   };
@@ -278,156 +504,66 @@ function EmergencyLogSection() {
 
 export default function CaretakerDashboard() {
   const { toast } = useToast();
-  const [activePatientId, setActivePatientId] = useState<number | null>(null);
-
+  const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null);
+  
   // Fetch all patients linked to this caretaker
-  const { data: users } = useQuery<any[]>({
+  const { data: patients } = useQuery<User[]>({
     queryKey: ["/api/user/patients"],
-  });
-
-  const patientId = activePatientId || (users?.[0]?.id);
-
-  const { data: memories } = useQuery<Memory[]>({
-    queryKey: [api.memories.list.path, { patientId }],
-    enabled: !!patientId,
-  });
-
-  const { data: routines } = useQuery<Routine[]>({
-    queryKey: [api.routines.list.path, { patientId }],
-    enabled: !!patientId,
-  });
-
-  const { data: medications } = useQuery<Medication[]>({
-    queryKey: [api.medications.list.path, { patientId }],
-    enabled: !!patientId,
-  });
-
-  const { data: logs } = useQuery<EmergencyLog[]>({
-    queryKey: [api.emergency.list.path, { patientId }],
-    enabled: !!patientId,
-  });
-
-  const uploadMemory = useMutation({
-    mutationFn: async (url: string) => {
-      return await apiRequest("POST", api.memories.create.path, { imageUrl: url, patientId });
+    queryFn: async () => {
+      const res = await fetch("/api/user/patients");
+      if (!res.ok) throw new Error("Failed to fetch patients");
+      const data = await res.json();
+      console.log("Fetched patients:", data);
+      return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.memories.list.path, { patientId }] });
-      toast({ title: "Memory uploaded" });
-    }
   });
+
+  // Auto-select first patient if none selected
+  const activePatientId = selectedPatientId || patients?.[0]?.id;
 
   return (
     <Layout variant="caretaker">
-      <div className="min-h-screen" style={{ 
-        background: 'linear-gradient(135deg, #F8FBFD 0%, #E8F4F8 100%)',
-        fontFamily: "'Plus Jakarta Sans', sans-serif"
-      }}>
-        <main className="space-y-8">
-          {/* Patient Selection Card */}
-          <div className="card-glass p-6 border-2 border-[#E8F4F8] shadow-xl">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="inline-block px-3 py-1 rounded-full mb-3 bg-[#E8F4F8]">
-                  <p className="text-xs font-bold text-[#1C4D8D]">SELECT PATIENT</p>
-                </div>
-                <div className="flex gap-4">
-                  {users?.map(u => (
-                    <Button 
-                      key={u.id}
-                      onClick={() => setActivePatientId(u.id)}
-                      variant={patientId === u.id ? "default" : "outline"}
-                      className={`rounded-xl px-6 ${patientId === u.id ? 'btn-primary' : 'border-[#4988C4] text-[#1C4D8D]'}`}
-                    >
-                      {u.username}
-                    </Button>
-                  ))}
-                  {users?.length === 0 && <p className="text-sm text-slate-500">No patients linked to your account.</p>}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Emergency Section */}
-            <div className="card-glass p-8 border-2 border-[#E74C3C] shadow-xl hover-elevate transition-all">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-14 h-14 rounded-2xl bg-[#FADBD8] flex items-center justify-center shadow-lg">
-                  <AlertCircle className="w-8 h-8 text-[#E74C3C]" strokeWidth={2.5} />
-                </div>
-                <div>
-                  <h3 className="text-2xl font-bold text-[#0F2854]">Emergency Protocol</h3>
-                  <p className="text-sm text-[#5D6D7E]">Active alerts and critical info</p>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {logs?.length ? logs.slice(0, 3).map(log => (
-                  <div key={log.id} className="flex items-center justify-between p-4 rounded-2xl bg-[#FADBD8]/50 border-2 border-[#E74C3C]/20">
-                    <span className="font-bold text-[#C0392B]">SOS TRIGGERED</span>
-                    <span className="text-sm font-medium text-[#5D6D7E]">{new Date(log.timestamp!).toLocaleString()}</span>
-                  </div>
-                )) : (
-                  <p className="text-[#5D6D7E] font-medium">No recent emergency alerts.</p>
-                )}
-              </div>
-            </div>
-
-            {/* Routine Tracker */}
-            <div className="card-glass p-8 border-2 border-[#4988C4] shadow-xl hover-elevate transition-all">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-14 h-14 rounded-2xl bg-[#E8F4F8] flex items-center justify-center shadow-lg">
-                  <Activity className="w-8 h-8 text-[#1C4D8D]" strokeWidth={2.5} />
-                </div>
-                <div>
-                  <h3 className="text-2xl font-bold text-[#0F2854]">Daily Routine</h3>
-                  <p className="text-sm text-[#5D6D7E]">Track patient daily activities</p>
-                </div>
-              </div>
-              <div className="space-y-4">
-                {routines?.map(r => (
-                  <div key={r.id} className="flex items-center justify-between p-4 rounded-2xl bg-white border-2 border-[#E8F4F8]">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-3 h-3 rounded-full ${r.isCompleted ? 'bg-[#27AE60]' : 'bg-[#E67E22]'}`} />
-                      <span className="font-bold text-[#0F2854]">{r.task}</span>
-                    </div>
-                    <span className={`text-sm font-bold ${r.isCompleted ? 'text-[#27AE60]' : 'text-[#E67E22]'}`}>
-                      {r.isCompleted ? "Completed" : "Pending"}
-                    </span>
-                  </div>
-                ))}
-                {routines?.length === 0 && <p className="text-slate-400 text-sm italic">No routines scheduled.</p>}
-              </div>
-            </div>
-          </div>
-
-          {/* Medicine Scheduler */}
-          <div className="card-glass p-8 border-2 border-[#27AE60] shadow-xl">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="w-14 h-14 rounded-2xl bg-[#D5F4E6] flex items-center justify-center shadow-lg">
-                <Pill className="w-8 h-8 text-[#27AE60]" strokeWidth={2.5} />
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold text-[#0F2854]">Medicine Scheduler</h3>
-                <p className="text-sm text-[#5D6D7E]">Manage dosage and schedules</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {medications?.map(m => (
-                <div key={m.id} className="p-6 rounded-3xl bg-white border-2 border-[#D5F4E6] shadow-md hover-elevate transition-all">
-                  <p className="text-xs font-bold text-[#1E8449] mb-1">TIME: {m.time}</p>
-                  <p className="text-xl font-bold text-[#0F2854] mb-2">{m.name}</p>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${m.taken ? 'bg-[#27AE60]' : 'bg-[#E74C3C]'}`} />
-                    <p className={`text-sm font-bold ${m.taken ? 'text-[#27AE60]' : 'text-[#E74C3C]'}`}>
-                      {m.taken ? "Taken" : "Missed"}
-                    </p>
-                  </div>
-                </div>
+      <div className="space-y-8">
+        {/* Patient Selection Card */}
+        {patients && patients.length > 0 ? (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-3 sm:mb-4">Select Patient</h3>
+            <div className="flex gap-2 sm:gap-4 flex-wrap">
+              {patients.map(patient => (
+                <Button
+                  key={patient.id}
+                  onClick={() => setSelectedPatientId(patient.id)}
+                  variant={activePatientId === patient.id ? "default" : "outline"}
+                  className="font-medium"
+                >
+                  {patient.username}
+                </Button>
               ))}
-              {medications?.length === 0 && <p className="text-slate-400 text-sm italic">No medications scheduled.</p>}
             </div>
           </div>
-        </main>
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <p className="text-slate-500">No patients linked to your account yet. Patients can link to you during registration by entering your username.</p>
+          </div>
+        )}
+
+        {/* Dashboard Sections - only show if patient is selected */}
+        {activePatientId ? (
+          <div className="space-y-8">
+            <MemorySection patientId={activePatientId} />
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <RoutineSection patientId={activePatientId} />
+              <MedicationSection patientId={activePatientId} />
+            </div>
+
+            <EmergencyLogSection />
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+            <p className="text-slate-400 text-lg">Select a patient to manage their care</p>
+          </div>
+        )}
       </div>
     </Layout>
   );

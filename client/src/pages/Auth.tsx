@@ -1,36 +1,38 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { z } from "zod";
-import { Loader2, ArrowRight } from "lucide-react";
+import { Loader2, ArrowRight, User } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useToast } from "@/hooks/use-toast";
 
-const authSchema = z.object({
-  username: z.string().min(3, "Username must be at least 3 characters"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.enum(["caretaker", "patient"]).optional(),
-  caretakerUsername: z.string().optional(),
-}).refine((data) => {
-  if (data.role === "patient" && !data.caretakerUsername) {
-    return false;
-  }
-  return true;
-}, {
-  message: "Caretaker username is required for patients",
-  path: ["caretakerUsername"],
-});
+// Theme colors from HTML templates
+const colors = {
+  primary: "#0F2854",
+  secondary: "#1C4D8D",
+  accent: "#4988C4",
+  background: "#BDE8F5",
+  light: "#E8F4F8",
+  white: "#FFFFFF",
+  success: "#27AE60",
+  danger: "#E74C3C",
+};
 
-type AuthFormData = z.infer<typeof authSchema>;
+type AuthFormData = {
+  username: string;
+  password: string;
+  role?: "caretaker" | "patient";
+  caretakerUsername?: string;
+};
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const { login, register: registerUser } = useAuth();
   const [_, setLocation] = useLocation();
+  const { toast } = useToast();
+  const [caretakerUsername, setCaretakerUsername] = useState("");
 
-  const form = useForm<AuthFormData>({
-    resolver: zodResolver(authSchema),
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<AuthFormData>({
     defaultValues: {
       username: "",
       password: "",
@@ -39,94 +41,222 @@ export default function AuthPage() {
     },
   });
 
-  const { register, handleSubmit, watch, formState: { errors } } = form;
   const role = watch("role");
 
   const onSubmit = async (data: AuthFormData) => {
     try {
       if (isLogin) {
-        await login.mutateAsync({ username: data.username, password: data.password });
+        await login.mutateAsync({ 
+          username: data.username.trim(), 
+          password: data.password 
+        });
+        toast({
+          title: "Welcome back!",
+          description: "You've successfully logged in.",
+        });
       } else {
-        await registerUser.mutateAsync({ 
-          username: data.username, 
+        // Validation
+        if (!data.username || data.username.trim().length < 3) {
+          toast({
+            title: "Validation Error",
+            description: "Username must be at least 3 characters",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        if (!data.password || data.password.length < 6) {
+          toast({
+            title: "Validation Error",
+            description: "Password must be at least 6 characters",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Client-side validation for patient caretaker username
+        if (data.role === "patient") {
+          if (!caretakerUsername || caretakerUsername.trim() === "") {
+            toast({
+              title: "Validation Error",
+              description: "Caretaker username is required for patients",
+              variant: "destructive",
+            });
+            return;
+          }
+        }
+
+        const registerData: any = { 
+          username: data.username.trim(), 
           password: data.password, 
           role: data.role || "caretaker",
-          caretakerUsername: data.caretakerUsername
+        };
+        
+        // Always send caretakerUsername if role is patient
+        if (data.role === "patient") {
+          registerData.caretakerUsername = caretakerUsername.trim();
+        }
+
+        await registerUser.mutateAsync(registerData);
+        toast({
+          title: "Account created!",
+          description: "Welcome to Reminisce AI.",
         });
       }
     } catch (error: any) {
-      // Error is handled by the mutation and toast
-      console.error(error);
+      toast({
+        title: "Error",
+        description: error.message || (isLogin ? "Invalid credentials" : "Registration failed"),
+        variant: "destructive",
+      });
     }
   };
 
   return (
-    <div className="min-h-screen w-full flex bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="min-h-screen w-full flex flex-col lg:flex-row" style={{ background: `linear-gradient(180deg, ${colors.background} 0%, ${colors.light} 100%)` }}>
+      {/* Floating orbs for visual effect */}
+      <div 
+        className="fixed rounded-full opacity-30 pointer-events-none blur-3xl"
+        style={{
+          width: "400px",
+          height: "400px",
+          background: `linear-gradient(135deg, ${colors.accent}, ${colors.secondary})`,
+          top: "-10%",
+          right: "-10%",
+          animation: "float 25s ease-in-out infinite",
+        }}
+      />
+      <div 
+        className="fixed rounded-full opacity-30 pointer-events-none blur-3xl"
+        style={{
+          width: "300px",
+          height: "300px",
+          background: `linear-gradient(135deg, ${colors.background}, ${colors.accent})`,
+          bottom: "-5%",
+          left: "-5%",
+          animation: "float 20s ease-in-out infinite reverse",
+        }}
+      />
+
       {/* Left Panel - Branding */}
-      <div className="hidden lg:flex w-1/2 items-center justify-center p-12 bg-primary relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary via-blue-600 to-indigo-700 opacity-90" />
-        <div className="absolute inset-0 opacity-10 pattern-dots" />
+      <div 
+        className="hidden lg:flex w-full lg:w-1/2 items-center justify-center p-6 sm:p-8 lg:p-12 relative overflow-hidden"
+        style={{ background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.secondary} 50%, ${colors.accent} 100%)` }}
+      >
+        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "20px 20px" }} />
         
-        {/* Abstract decorative circles */}
-        <div className="absolute top-0 left-0 w-96 h-96 bg-white/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-accent/20 rounded-full blur-3xl translate-x-1/2 translate-y-1/2" />
-
         <div className="relative z-10 max-w-lg text-white space-y-8">
-          <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
-            <span className="text-4xl font-display font-bold">R</span>
+          <div 
+            className="w-20 h-20 rounded-2xl flex items-center justify-center"
+            style={{ background: "rgba(255, 255, 255, 0.2)", backdropFilter: "blur(10px)" }}
+          >
+            <span className="text-5xl font-bold">R</span>
           </div>
-          <h1 className="text-5xl font-display font-bold leading-tight">
-            Preserving memories, <br/>
-            <span className="text-blue-200">connecting hearts.</span>
-          </h1>
-          <p className="text-lg text-blue-100 leading-relaxed font-light">
-            Reminisce AI bridges the gap between care and connection. Empowering patients with independence and caretakers with peace of mind.
-          </p>
-        </div>
-      </div>
-
-      {/* Right Panel - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12">
-        <div className="w-full max-w-md space-y-8">
-          <div className="text-center lg:text-left space-y-2">
-            <h2 className="text-3xl font-display font-bold text-slate-900">
-              {isLogin ? "Welcome back" : "Create an account"}
-            </h2>
-            <p className="text-muted-foreground">
-              {isLogin 
-                ? "Enter your credentials to access the dashboard." 
-                : "Join us to start managing care effectively."}
+          
+          <div className="space-y-4">
+            <h1 className="text-5xl font-bold leading-tight">
+              Welcome to<br />Reminisce AI
+            </h1>
+            <p className="text-lg text-white/90 leading-relaxed">
+              Empowering care through AI-powered memory support and comprehensive health management.
             </p>
           </div>
 
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <div className="space-y-4">
+          <div className="space-y-4 pt-4">
+            <div className="flex items-start gap-3">
+              <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-1" style={{ background: "rgba(255, 255, 255, 0.2)" }}>
+                <span className="text-sm">✓</span>
+              </div>
+              <p className="text-white/90">AI-powered memory enhancement therapy</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-1" style={{ background: "rgba(255, 255, 255, 0.2)" }}>
+                <span className="text-sm">✓</span>
+              </div>
+              <p className="text-white/90">Smart medication & routine management</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-1" style={{ background: "rgba(255, 255, 255, 0.2)" }}>
+                <span className="text-sm">✓</span>
+              </div>
+              <p className="text-white/90">24/7 emergency assistance & monitoring</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Panel - Auth Form */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-6 relative z-10">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md"
+        >
+          {/* Logo for mobile */}
+          <div className="lg:hidden mb-8 text-center">
+            <div 
+              className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+              style={{ background: `linear-gradient(135deg, ${colors.secondary}, ${colors.accent})` }}
+            >
+              <span className="text-3xl font-bold text-white">R</span>
+            </div>
+            <h2 className="text-2xl font-bold" style={{ color: colors.primary }}>Reminisce AI</h2>
+          </div>
+
+          {/* Auth Card */}
+          <div 
+            className="rounded-2xl sm:rounded-3xl p-6 sm:p-8 lg:p-10 shadow-2xl border"
+            style={{ 
+              background: "rgba(255, 255, 255, 0.85)",
+              backdropFilter: "blur(20px)",
+              borderColor: "rgba(255, 255, 255, 0.6)",
+            }}
+          >
+            <div className="text-center mb-6 sm:mb-8">
+              <h2 className="text-2xl sm:text-3xl font-bold mb-2" style={{ color: colors.primary }}>
+                {isLogin ? "Welcome back" : "Create an account"}
+              </h2>
+              <p style={{ color: `${colors.primary}99` }}>
+                {isLogin ? "Log in to access your dashboard" : "Join us to start managing care effectively"}
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 sm:space-y-5">
+              {/* Username */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-700">Username</label>
+                <label className="text-sm font-semibold" style={{ color: colors.primary }}>Username</label>
                 <input
-                  {...form.register("username")}
-                  className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all placeholder:text-slate-400"
-                  placeholder="e.g. sarah_connor"
+                  {...register("username")}
+                  className="w-full px-4 py-3 rounded-xl border-2 focus:outline-none transition-all"
+                  style={{
+                    borderColor: colors.light,
+                    color: colors.primary,
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = colors.accent}
+                  onBlur={(e) => e.target.style.borderColor = colors.light}
+                  placeholder="Enter your username"
                 />
-                {form.formState.errors.username && (
-                  <p className="text-sm text-destructive">{form.formState.errors.username.message}</p>
-                )}
               </div>
 
+              {/* Password */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-700">Password</label>
+                <label className="text-sm font-semibold" style={{ color: colors.primary }}>Password</label>
                 <input
                   type="password"
-                  {...form.register("password")}
-                  className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all placeholder:text-slate-400"
-                  placeholder="••••••••"
+                  {...register("password")}
+                  className="w-full px-4 py-3 rounded-xl border-2 focus:outline-none transition-all"
+                  style={{
+                    borderColor: colors.light,
+                    color: colors.primary,
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = colors.accent}
+                  onBlur={(e) => e.target.style.borderColor = colors.light}
+                  placeholder="Enter your password"
                 />
-                {form.formState.errors.password && (
-                  <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>
-                )}
               </div>
 
-              <AnimatePresence initial={false}>
+              {/* Role Selection for Signup */}
+              <AnimatePresence>
                 {!isLogin && (
                   <motion.div
                     initial={{ height: 0, opacity: 0 }}
@@ -134,87 +264,127 @@ export default function AuthPage() {
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="space-y-2 pt-2">
-                      <label className="text-sm font-medium text-slate-700">I am a...</label>
+                    <div className="space-y-3 pt-2">
+                      <label className="text-sm font-semibold" style={{ color: colors.primary }}>I am a...</label>
                       <div className="grid grid-cols-2 gap-4">
                         <label className="cursor-pointer">
                           <input
                             type="radio"
                             value="caretaker"
-                            {...form.register("role")}
+                            {...register("role")}
                             className="peer sr-only"
                           />
-                          <div className="p-4 rounded-xl border-2 border-slate-200 peer-checked:border-primary peer-checked:bg-primary/5 hover:bg-slate-50 transition-all text-center">
-                            <span className="font-semibold block text-slate-900 peer-checked:text-primary">Caretaker</span>
+                          <div 
+                            className="p-4 rounded-xl border-2 peer-checked:shadow-lg hover:shadow-md transition-all text-center"
+                            style={{
+                              borderColor: colors.light,
+                              background: colors.white,
+                            }}
+                          >
+                            <User className="w-6 h-6 mx-auto mb-2" style={{ color: colors.accent }} />
+                            <span className="font-semibold block" style={{ color: colors.primary }}>Caretaker</span>
                           </div>
                         </label>
                         <label className="cursor-pointer">
                           <input
                             type="radio"
                             value="patient"
-                            {...form.register("role")}
+                            {...register("role")}
                             className="peer sr-only"
                           />
-                          <div className="p-4 rounded-xl border-2 border-slate-200 peer-checked:border-primary peer-checked:bg-primary/5 hover:bg-slate-50 transition-all text-center">
-                            <span className="font-semibold block text-slate-900 peer-checked:text-primary">Patient</span>
+                          <div 
+                            className="p-4 rounded-xl border-2 peer-checked:shadow-lg hover:shadow-md transition-all text-center"
+                            style={{
+                              borderColor: colors.light,
+                              background: colors.white,
+                            }}
+                          >
+                            <User className="w-6 h-6 mx-auto mb-2" style={{ color: colors.accent }} />
+                            <span className="font-semibold block" style={{ color: colors.primary }}>Patient</span>
                           </div>
                         </label>
                       </div>
                     </div>
 
+                    {/* Caretaker Username Field */}
                     <AnimatePresence>
                       {role === "patient" && (
                         <motion.div
+                          key="caretaker-field"
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: "auto", opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}
                           className="space-y-2 pt-4"
                         >
-                          <label className="text-sm font-medium text-slate-700">Caretaker Username *</label>
+                          <label className="text-sm font-semibold" style={{ color: colors.primary }}>
+                            Caretaker Username <span style={{ color: colors.danger }}>*</span>
+                          </label>
                           <input
-                            {...form.register("caretakerUsername")}
-                            className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all placeholder:text-slate-400"
-                            placeholder="Link to your caretaker"
+                            type="text"
+                            value={caretakerUsername}
+                            onChange={(e) => setCaretakerUsername(e.target.value)}
+                            className="w-full px-4 py-3 rounded-xl border-2 focus:outline-none transition-all"
+                            style={{
+                              borderColor: colors.light,
+                              color: colors.primary,
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = colors.accent}
+                            onBlur={(e) => e.target.style.borderColor = colors.light}
+                            placeholder="Enter caretaker's username"
                           />
-                          {form.formState.errors.caretakerUsername && (
-                            <p className="text-sm text-destructive">{form.formState.errors.caretakerUsername.message}</p>
-                          )}
-                          <p className="text-xs text-muted-foreground">Ask your caretaker for their username to link your accounts.</p>
+                          <p className="text-xs" style={{ color: `${colors.primary}80` }}>
+                            Ask your caretaker for their username to link your accounts
+                          </p>
                         </motion.div>
                       )}
                     </AnimatePresence>
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={login.isPending || registerUser.isPending}
+                className="w-full py-4 px-6 rounded-xl font-bold text-white hover:opacity-90 focus:ring-4 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
+                style={{ 
+                  background: `linear-gradient(90deg, ${colors.secondary} 0%, ${colors.accent} 100%)`,
+                  boxShadow: `0 8px 24px ${colors.accent}40`,
+                }}
+              >
+                {(login.isPending || registerUser.isPending) ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    {isLogin ? "Sign In" : "Create Account"}
+                    <ArrowRight className="w-5 h-5" />
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Toggle Login/Signup */}
+            <div className="text-center mt-6">
+              <button
+                onClick={() => setIsLogin(!isLogin)}
+                className="text-sm font-semibold transition-colors"
+                style={{ color: colors.secondary }}
+                onMouseEnter={(e) => e.currentTarget.style.color = colors.primary}
+                onMouseLeave={(e) => e.currentTarget.style.color = colors.secondary}
+              >
+                {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+              </button>
             </div>
-
-            <button
-              type="submit"
-              disabled={login.isPending || register.isPending}
-              className="w-full py-4 px-6 rounded-xl bg-primary text-white font-bold text-lg shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 active:shadow-md transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
-            >
-              {login.isPending || register.isPending ? (
-                <Loader2 className="w-6 h-6 animate-spin" />
-              ) : (
-                <>
-                  {isLogin ? "Sign In" : "Create Account"}
-                  <ArrowRight className="w-5 h-5" />
-                </>
-              )}
-            </button>
-          </form>
-
-          <div className="text-center pt-4">
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-slate-500 hover:text-primary font-medium transition-colors"
-            >
-              {isLogin ? "New to Reminisce? Create an account" : "Already have an account? Sign in"}
-            </button>
           </div>
-        </div>
+        </motion.div>
       </div>
+
+      <style>{`
+        @keyframes float {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(50px, -50px) scale(1.1); }
+        }
+      `}</style>
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
-import { analyzeImageWithVision, generateMemoryPrompt } from "./azure_services";
+import { analyzeImageWithVision, generateMemoryQuestions } from "./azure_services";
 import { hashPassword } from "./auth";
 
 async function seedDatabase() {
@@ -44,7 +44,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/user/patients", async (req, res) => {
     if (!req.isAuthenticated() || req.user.role !== 'caretaker') return res.sendStatus(401);
+    console.log("Fetching patients for caretaker ID:", req.user.id);
     const myPatients = await storage.getPatientsForCaretaker(req.user.id);
+    console.log("Found patients:", myPatients.length, myPatients.map(p => ({ id: p.id, username: p.username, caretakerId: p.caretakerId })));
     res.json(myPatients);
   });
 
@@ -73,28 +75,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
       const input = api.memories.create.input.parse(req.body);
-      // Determine patient ID (must be provided in body if caretaker, or derived)
-      // The schema for creation doesn't enforce patientId in the Zod schema from *client* perspective if we omitted it, 
-      // but we updated schema.ts to include it in the table. 
-      // Let's assume the client sends it or we inject it.
-      // The shared schema omitted it? Yes. So we need to handle it.
       
       let targetPatientId = req.user.role === 'patient' ? req.user.id : (req.body as any).patientId;
       if (!targetPatientId && req.user.role === 'caretaker') {
-         // Try to find a patient for this caretaker?
-         // For now, fail if not provided.
          return res.status(400).json({message: "patientId required"});
       }
 
-      // Simulate AI analysis
-      const description = await analyzeImageWithVision(input.imageUrl);
-      const aiQuestion = await generateMemoryPrompt([description]); // simple pass-through
+      // AI analysis with Azure Computer Vision and Gemini
+      const imageAnalysis = await analyzeImageWithVision(input.imageUrl);
+      const aiQuestions = await generateMemoryQuestions(imageAnalysis, input.description || "");
+      
+      // Combine analysis with user description
+      const enhancedDescription = `${input.description || ""}
+
+Image Analysis: ${imageAnalysis.caption}${imageAnalysis.tags.length > 0 ? ` (Tags: ${imageAnalysis.tags.join(", ")})` : ""}`.trim();
       
       const memory = await storage.createMemory({
         ...input,
         patientId: targetPatientId,
-        description: input.description || description,
-        aiQuestion: aiQuestion
+        description: enhancedDescription,
+        aiQuestions: aiQuestions, // Store all questions
+        lastQuestionIndex: 0
       });
       res.status(201).json(memory);
     } catch (err) {
@@ -103,6 +104,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       } else {
         res.status(500).json({ message: "Internal Server Error" });
       }
+    }
+  });
+
+  // Upload image endpoint (convert to base64 data URL)
+  app.post("/api/upload-image", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { imageData } = req.body;
+      
+      if (!imageData || !imageData.startsWith('data:image')) {
+        return res.status(400).json({ message: "Invalid image data" });
+      }
+      
+      // Return data URL (in production, upload to Azure Blob Storage)
+      res.json({ imageUrl: imageData });
+    } catch (error) {
+      console.error("Image upload error:", error);
+      res.status(500).json({ message: "Failed to upload image" });
+    }
+  });
+
+  // Text-to-Speech endpoint for memory questions (Azure Speech Service)
+  app.post("/api/text-to-speech", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { text } = req.body;
+      
+      if (!text || typeof text !== 'string') {
+        return res.status(400).json({ message: "Text is required" });
+      }
+      
+      const { textToSpeech } = await import("./azure_services");
+      const result = await textToSpeech(text);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("Text-to-speech error:", error);
+      res.status(500).json({ message: error.message || "Failed to generate speech" });
     }
   });
 

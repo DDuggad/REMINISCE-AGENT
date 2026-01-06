@@ -2,6 +2,7 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express } from "express";
 import session from "express-session";
+import MongoStore from "connect-mongodb-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
@@ -14,6 +15,7 @@ declare global {
 }
 
 const scryptAsync = promisify(scrypt);
+const MongoDBStore = MongoStore(session);
 
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -29,16 +31,40 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
+  // Create MongoDB session store
+  const sessionStore = new MongoDBStore({
+    uri: process.env.DATABASE_URL!,
+    databaseName: process.env.DATABASE_NAME || "reminisce_ai",
+    collection: "sessions",
+    expires: 1000 * 60 * 60 * 24 * 7, // 7 days
+    connectionOptions: {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 10000,
+    }
+  });
+
+  sessionStore.on('error', function(error: Error) {
+    console.error('Session store error:', error);
+  });
+
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET || "reminisce_secret",
     resave: false,
     saveUninitialized: false,
-    store: storage.sessionStore,
+    store: sessionStore,
+    cookie: {
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      httpOnly: true,
+      secure: false, // Allow HTTP for localhost
+      sameSite: 'lax',
+    },
+    proxy: false, // Disable proxy mode for localhost
   };
 
-  if (app.get("env") === "production") {
-    app.set("trust proxy", 1);
-  }
+  // Don't set trust proxy for localhost development
+  // if (app.get("env") === "production") {
+  //   app.set("trust proxy", 1);
+  // }
 
   app.use(session(sessionSettings));
   app.use(passport.initialize());
@@ -65,17 +91,23 @@ export function setupAuth(app: Express) {
     try {
       const existingUser = await storage.getUserByUsername(req.body.username);
       if (existingUser) {
-        return res.status(400).send("Username already exists");
+        return res.status(400).json({ message: "Username already exists" });
       }
 
       let caretakerId: number | undefined;
       if (req.body.role === 'patient') {
-        if (!req.body.caretakerUsername) {
-          return res.status(400).send("Caretaker username is required for patients");
+        const caretakerUsername = req.body.caretakerUsername?.trim();
+        
+        if (!caretakerUsername || caretakerUsername === "") {
+          return res.status(400).json({ message: "Caretaker username is required for patients" });
         }
-        const caretaker = await storage.getUserByUsername(req.body.caretakerUsername);
+        
+        const caretaker = await storage.getUserByUsername(caretakerUsername);
         if (!caretaker) {
-          return res.status(400).send("The specified Caretaker username does not exist. Please check the spelling and try again.");
+          return res.status(400).json({ message: "The specified Caretaker username does not exist. Please check the spelling and try again." });
+        }
+        if (caretaker.role !== 'caretaker') {
+          return res.status(400).json({ message: "The specified user is not a caretaker." });
         }
         caretakerId = caretaker.id;
       }

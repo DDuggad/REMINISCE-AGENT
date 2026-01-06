@@ -2,11 +2,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl, type InsertMemory, type InsertRoutine, type InsertMedication } from "@shared/routes";
 
 // --- MEMORIES ---
-export function useMemories() {
+export function useMemories(patientId?: number) {
   return useQuery({
-    queryKey: [api.memories.list.path],
+    queryKey: [api.memories.list.path, patientId],
     queryFn: async () => {
-      const res = await fetch(api.memories.list.path);
+      const url = patientId ? `${api.memories.list.path}?patientId=${patientId}` : api.memories.list.path;
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch memories");
       return api.memories.list.responses[200].parse(await res.json());
     },
@@ -31,11 +32,12 @@ export function useCreateMemory() {
 }
 
 // --- ROUTINES ---
-export function useRoutines() {
+export function useRoutines(patientId?: number) {
   return useQuery({
-    queryKey: [api.routines.list.path],
+    queryKey: [api.routines.list.path, patientId],
     queryFn: async () => {
-      const res = await fetch(api.routines.list.path);
+      const url = patientId ? `${api.routines.list.path}?patientId=${patientId}` : api.routines.list.path;
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch routines");
       return api.routines.list.responses[200].parse(await res.json());
     },
@@ -73,11 +75,12 @@ export function useToggleRoutine() {
 }
 
 // --- MEDICATIONS ---
-export function useMedications() {
+export function useMedications(patientId?: number) {
   return useQuery({
-    queryKey: [api.medications.list.path],
+    queryKey: [api.medications.list.path, patientId],
     queryFn: async () => {
-      const res = await fetch(api.medications.list.path);
+      const url = patientId ? `${api.medications.list.path}?patientId=${patientId}` : api.medications.list.path;
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch medications");
       return api.medications.list.responses[200].parse(await res.json());
     },

@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { insertUserSchema, insertMemorySchema, insertRoutineSchema, insertMedicationSchema, users, memories, routines, medications, emergencyLogs } from './schema';
+import { 
+  insertUserSchema, insertMemorySchema, insertRoutineSchema, insertMedicationSchema,
+  User, Memory, Routine, Medication, EmergencyLog
+} from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -21,7 +24,7 @@ export const api = {
       path: '/api/login',
       input: z.object({ username: z.string(), password: z.string() }),
       responses: {
-        200: z.custom<typeof users.$inferSelect>(),
+        200: z.custom<User>(),
         401: errorSchemas.internal,
       },
     },
@@ -37,7 +40,7 @@ export const api = {
       path: '/api/register',
       input: insertUserSchema,
       responses: {
-        201: z.custom<typeof users.$inferSelect>(),
+        201: z.custom<User>(),
         400: errorSchemas.validation,
       },
     },
@@ -45,7 +48,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/user',
       responses: {
-        200: z.custom<typeof users.$inferSelect>(),
+        200: z.custom<User>(),
         401: z.null(),
       },
     },
@@ -55,7 +58,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/memories',
       responses: {
-        200: z.array(z.custom<typeof memories.$inferSelect>()),
+        200: z.array(z.custom<Memory>()),
       },
     },
     create: {
@@ -63,7 +66,7 @@ export const api = {
       path: '/api/memories',
       input: insertMemorySchema,
       responses: {
-        201: z.custom<typeof memories.$inferSelect>(),
+        201: z.custom<Memory>(),
         400: errorSchemas.validation,
       },
     },
@@ -73,7 +76,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/routines',
       responses: {
-        200: z.array(z.custom<typeof routines.$inferSelect>()),
+        200: z.array(z.custom<Routine>()),
       },
     },
     create: {
@@ -81,7 +84,7 @@ export const api = {
       path: '/api/routines',
       input: insertRoutineSchema,
       responses: {
-        201: z.custom<typeof routines.$inferSelect>(),
+        201: z.custom<Routine>(),
         400: errorSchemas.validation,
       },
     },
@@ -89,7 +92,7 @@ export const api = {
       method: 'PATCH' as const,
       path: '/api/routines/:id/toggle',
       responses: {
-        200: z.custom<typeof routines.$inferSelect>(),
+        200: z.custom<Routine>(),
         404: errorSchemas.notFound,
       },
     },
@@ -99,7 +102,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/medications',
       responses: {
-        200: z.array(z.custom<typeof medications.$inferSelect>()),
+        200: z.array(z.custom<Medication>()),
       },
     },
     create: {
@@ -107,7 +110,7 @@ export const api = {
       path: '/api/medications',
       input: insertMedicationSchema,
       responses: {
-        201: z.custom<typeof medications.$inferSelect>(),
+        201: z.custom<Medication>(),
         400: errorSchemas.validation,
       },
     },
@@ -115,7 +118,7 @@ export const api = {
       method: 'PATCH' as const,
       path: '/api/medications/:id/toggle',
       responses: {
-        200: z.custom<typeof medications.$inferSelect>(),
+        200: z.custom<Medication>(),
         404: errorSchemas.notFound,
       },
     },
@@ -125,14 +128,14 @@ export const api = {
       method: 'GET' as const,
       path: '/api/emergency',
       responses: {
-        200: z.array(z.custom<typeof emergencyLogs.$inferSelect>()),
+        200: z.array(z.custom<EmergencyLog>()),
       },
     },
     trigger: {
       method: 'POST' as const,
       path: '/api/emergency',
       responses: {
-        201: z.custom<typeof emergencyLogs.$inferSelect>(),
+        201: z.custom<EmergencyLog>(),
       },
     },
   },
@@ -149,3 +152,9 @@ export function buildUrl(path: string, params?: Record<string, string | number>)
   }
   return url;
 }
+
+// Export types for client usage
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type InsertMemory = z.infer<typeof insertMemorySchema>;
+export type InsertRoutine = z.infer<typeof insertRoutineSchema>;
+export type InsertMedication = z.infer<typeof insertMedicationSchema>;

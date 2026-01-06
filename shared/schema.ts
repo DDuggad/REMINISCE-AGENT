@@ -1,102 +1,121 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import { relations } from "drizzle-orm";
+import { ObjectId } from "mongodb";
 
-export const users = pgTable("users", {
-  id: serial("id").primaryKey(),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-  role: text("role").notNull().default("caretaker"), // 'caretaker' | 'patient'
-  caretakerId: integer("caretaker_id"), // Foreign key to users.id (for patients)
+// MongoDB Schema Interfaces
+export interface User {
+  _id?: ObjectId;
+  id: number;
+  username: string;
+  password: string;
+  role: string;
+  caretakerId?: number;
+}
+
+export interface Memory {
+  _id?: ObjectId;
+  id: number;
+  patientId: number;
+  imageUrl: string;
+  description?: string;
+  aiQuestions?: string[]; // Array of questions
+  lastQuestionIndex?: number; // Track which question was shown last
+  createdAt: Date;
+}
+
+export interface Routine {
+  _id?: ObjectId;
+  id: number;
+  patientId: number;
+  task: string;
+  time?: string;
+  frequency?: 'daily' | 'weekly' | 'once' | 'as-needed';
+  type?: 'task' | 'medication';
+  dosage?: string;
+  isCompleted: boolean;
+}
+
+export interface Medication {
+  _id?: ObjectId;
+  id: number;
+  patientId: number;
+  name: string;
+  time: string;
+  dosage?: string;
+  taken: boolean;
+}
+
+export interface EmergencyLog {
+  _id?: ObjectId;
+  id: number;
+  patientId: number;
+  timestamp: Date;
+  status: string;
+  resolved: boolean;
+}
+
+// For backward compatibility, create table-like objects
+export const users = {
+  name: "users" as const,
+};
+
+export const memories = {
+  name: "memories" as const,
+};
+
+export const routines = {
+  name: "routines" as const,
+};
+
+export const medications = {
+  name: "medications" as const,
+};
+
+export const emergencyLogs = {
+  name: "emergency_logs" as const,
+};
+
+// Zod validation schemas
+export const insertUserSchema = z.object({
+  username: z.string().min(3),
+  password: z.string().min(6),
+  role: z.enum(["caretaker", "patient"]).default("caretaker"),
+  caretakerId: z.number().optional(),
+  caretakerUsername: z.string().optional(),
 });
 
-export const memories = pgTable("memories", {
-  id: serial("id").primaryKey(),
-  patientId: integer("patient_id").notNull(),
-  imageUrl: text("image_url").notNull(),
-  description: text("description"),
-  aiQuestion: text("ai_question"),
-  createdAt: timestamp("created_at").defaultNow(),
+export const insertMemorySchema = z.object({
+  patientId: z.number(),
+  imageUrl: z.string().url(),
+  description: z.string().optional(),
+  aiQuestion: z.string().optional(),
 });
 
-export const routines = pgTable("routines", {
-  id: serial("id").primaryKey(),
-  patientId: integer("patient_id").notNull(),
-  task: text("task").notNull(),
-  time: text("time"), // Added for routine tracking
-  isCompleted: boolean("is_completed").default(false),
+export const insertRoutineSchema = z.object({
+  patientId: z.number(),
+  task: z.string(),
+  time: z.string().optional(),
+  frequency: z.enum(['daily', 'weekly', 'once', 'as-needed']).default('daily'),
+  type: z.enum(['task', 'medication']).default('task'),
+  dosage: z.string().optional(),
+  isCompleted: z.boolean().default(false),
 });
 
-export const medications = pgTable("medications", {
-  id: serial("id").primaryKey(),
-  patientId: integer("patient_id").notNull(),
-  name: text("name").notNull(),
-  time: text("time").notNull(), // e.g. "08:00 AM"
-  dosage: text("dosage"), // Added for detail
-  taken: boolean("taken").default(false),
+export const insertMedicationSchema = z.object({
+  patientId: z.number(),
+  name: z.string(),
+  time: z.string(),
+  dosage: z.string().optional(),
+  taken: z.boolean().default(false),
 });
 
-export const emergencyLogs = pgTable("emergency_logs", {
-  id: serial("id").primaryKey(),
-  patientId: integer("patient_id").notNull(),
-  timestamp: timestamp("timestamp").defaultNow(),
-  status: text("status").default("High Alert"), // 'High Alert' for SOS
-  resolved: boolean("resolved").default(false),
+export const insertEmergencyLogSchema = z.object({
+  patientId: z.number(),
+  status: z.string().default("High Alert"),
+  resolved: z.boolean().default(false),
 });
 
-// Relations
-export const usersRelations = relations(users, ({ one, many }) => ({
-  caretaker: one(users, {
-    fields: [users.caretakerId],
-    references: [users.id],
-    relationName: "caretaker_patient"
-  }),
-  patients: many(users, { relationName: "caretaker_patient" }),
-  memories: many(memories),
-  routines: many(routines),
-  medications: many(medications),
-  emergencyLogs: many(emergencyLogs),
-}));
-
-export const memoriesRelations = relations(memories, ({ one }) => ({
-  patient: one(users, {
-    fields: [memories.patientId],
-    references: [users.id],
-  }),
-}));
-
-export const routinesRelations = relations(routines, ({ one }) => ({
-  patient: one(users, {
-    fields: [routines.patientId],
-    references: [users.id],
-  }),
-}));
-
-export const medicationsRelations = relations(medications, ({ one }) => ({
-  patient: one(users, {
-    fields: [medications.patientId],
-    references: [users.id],
-  }),
-}));
-
-export const emergencyLogsRelations = relations(emergencyLogs, ({ one }) => ({
-  patient: one(users, {
-    fields: [emergencyLogs.patientId],
-    references: [users.id],
-  }),
-}));
-
-export const insertUserSchema = createInsertSchema(users).omit({ id: true });
-export const insertMemorySchema = createInsertSchema(memories).omit({ id: true, createdAt: true });
-export const insertRoutineSchema = createInsertSchema(routines).omit({ id: true });
-export const insertMedicationSchema = createInsertSchema(medications).omit({ id: true });
-export const insertEmergencyLogSchema = createInsertSchema(emergencyLogs).omit({ id: true, timestamp: true });
-
-export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
-export type Memory = typeof memories.$inferSelect;
 export type InsertMemory = z.infer<typeof insertMemorySchema>;
-export type Routine = typeof routines.$inferSelect;
-export type Medication = typeof medications.$inferSelect;
-export type EmergencyLog = typeof emergencyLogs.$inferSelect;
+export type InsertRoutine = z.infer<typeof insertRoutineSchema>;
+export type InsertMedication = z.infer<typeof insertMedicationSchema>;
+export type InsertEmergencyLog = z.infer<typeof insertEmergencyLogSchema>;

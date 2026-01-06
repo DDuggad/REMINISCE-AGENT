@@ -11,6 +11,14 @@ export default {
         sm: ".1875rem", /* 3px */
       },
       colors: {
+        // Custom theme colors matching HTML templates
+        brand: {
+          primary: "#0F2854",
+          secondary: "#1C4D8D",
+          accent: "#4988C4",
+          background: "#BDE8F5",
+          light: "#E8F4F8",
+        },
         // Flat / base colors (regular buttons)
         background: "hsl(var(--background) / <alpha-value>)",
         foreground: "hsl(var(--foreground) / <alpha-value>)",
