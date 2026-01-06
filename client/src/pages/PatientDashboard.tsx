@@ -179,6 +179,14 @@ export default function PatientDashboard() {
     }
   };
 
+  const stopVoiceRecognition = () => {
+    const recognition = (window as any).voiceRecognition;
+    if (recognition) {
+      recognition.stop();
+      setIsListening(false);
+    }
+  };
+
   const handleSOS = () => {
     triggerEmergency.mutate(undefined, {
       onSuccess: () => {
@@ -446,6 +454,24 @@ export default function PatientDashboard() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-4 md:p-8 backdrop-blur-xl"
           >
+            {/* Cross Button */}
+            <motion.button
+              initial={{ scale: 0, rotate: -180 }}
+              animate={{ scale: 1, rotate: 0 }}
+              exit={{ scale: 0, rotate: 180 }}
+              whileHover={{ scale: 1.1, rotate: 90 }}
+              whileTap={{ scale: 0.9 }}
+              transition={{ type: "spring", damping: 15 }}
+              onClick={() => {
+                stopVoiceRecognition();
+                setShowVoiceUI(false);
+                setTranscript("");
+              }}
+              className="fixed top-6 right-6 md:top-8 md:right-8 w-14 h-14 md:w-16 md:h-16 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center shadow-2xl border-2 border-white/30 z-[60] backdrop-blur-sm"
+            >
+              <X className="w-7 h-7 md:w-8 md:h-8 text-white" strokeWidth={3} />
+            </motion.button>
+
             <motion.div
               initial={{ scale: 0.8, y: 20 }}
               animate={{ scale: 1, y: 0 }}
@@ -503,12 +529,11 @@ export default function PatientDashboard() {
                 <motion.button 
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={startVoiceRecognition}
-                  disabled={isListening}
+                  onClick={isListening ? stopVoiceRecognition : startVoiceRecognition}
                   className={cn(
-                    "flex-1 px-8 md:px-12 py-4 md:py-6 text-white text-xl md:text-2xl font-bold rounded-2xl transition-all",
+                    "flex-1 px-8 md:px-12 py-4 md:py-6 text-white text-xl md:text-2xl font-bold rounded-2xl transition-all shadow-lg",
                     isListening 
-                      ? "bg-red-500 hover:bg-red-600 border-2 border-red-400 animate-pulse cursor-default" 
+                      ? "bg-red-500 hover:bg-red-600 border-2 border-red-400 animate-pulse" 
                       : "bg-green-500 hover:bg-green-600 border-2 border-green-400"
                   )}
                 >
@@ -518,6 +543,7 @@ export default function PatientDashboard() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => {
+                    stopVoiceRecognition();
                     setShowVoiceUI(false);
                     setTranscript("");
                   }}
