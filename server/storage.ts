@@ -60,6 +60,7 @@ export class DatabaseStorage implements IStorage {
       password: user.password,
       role: user.role || "caretaker",
       caretakerId: user.caretakerId,
+      phoneNumber: user.phoneNumber,
     };
     await db.collection<User>("users").insertOne(newUser as any);
     return newUser;
