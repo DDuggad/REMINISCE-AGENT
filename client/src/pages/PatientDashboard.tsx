@@ -113,17 +113,7 @@ export default function PatientDashboard() {
           } else if (command.includes('help') || command.includes('sos') || command.includes('emergency')) {
             // Close voice UI and trigger emergency
             setShowVoiceUI(false);
-            fetch('/api/emergency', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-            }).then(() => {
-              toast({
-                title: "🚨 Emergency Alert Sent!",
-                description: "Your caretaker has been notified immediately",
-                variant: "destructive",
-              });
-            });
+            handleSOS();
           } else if (command.includes('task') || command.includes('routine') || command.includes('schedule') || command.includes('what do i need') || command.includes('to do')) {
             // Close voice assistant and scroll to tasks
             setShowVoiceUI(false);
@@ -274,17 +264,35 @@ export default function PatientDashboard() {
       onSuccess: (data: any) => {
         setSosActive(true);
         
-        // Dial emergency services (112)
-        window.location.href = 'tel:112';
-        
-        // Show caretaker notification
+        // Show call options
         toast({
-          title: "🚨 Emergency Alert Sent!",
-          description: `Caretaker notified${data.caretakerPhone ? ` at ${data.caretakerPhone}` : ''}. Calling emergency services...`,
+          title: "🚨 Emergency Alert!",
+          description: (
+            <div className="space-y-2">
+              <p>Emergency log created. Choose who to call:</p>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={() => window.location.href = 'tel:112'}
+                  className="flex-1 px-3 py-2 bg-red-600 text-white rounded-md font-semibold text-sm hover:bg-red-700"
+                >
+                  📞 Call 112
+                </button>
+                {data.caretakerPhone && (
+                  <button
+                    onClick={() => window.location.href = `tel:${data.caretakerPhone}`}
+                    className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-md font-semibold text-sm hover:bg-blue-700"
+                  >
+                    📞 Call {data.caretakerName || 'Caretaker'}
+                  </button>
+                )}
+              </div>
+            </div>
+          ),
           variant: "destructive",
+          duration: 10000,
         });
         
-        setTimeout(() => setSosActive(false), 5000); 
+        setTimeout(() => setSosActive(false), 10000); 
       }
     });
   };

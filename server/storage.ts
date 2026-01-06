@@ -232,6 +232,17 @@ export class DatabaseStorage implements IStorage {
       .toArray();
   }
 
+  async resolveEmergencyLog(logId: number): Promise<EmergencyLog | null> {
+    const db = await this.getDatabase();
+    const result = await db.collection<EmergencyLog>("emergency_logs")
+      .findOneAndUpdate(
+        { id: logId },
+        { $set: { resolved: true } },
+        { returnDocument: "after" }
+      );
+    return result || null;
+  }
+
   async getPatientsForCaretaker(caretakerId: number): Promise<User[]> {
     const db = await this.getDatabase();
     console.log("Searching for patients with caretakerId:", caretakerId);

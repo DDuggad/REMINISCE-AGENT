@@ -280,6 +280,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Emergency
   app.get(api.emergency.list.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    // If caretaker, get logs for all their patients
+    if (req.user.role === 'caretaker') {
+      const patients = await storage.getPatientsForCaretaker(req.user.id);
+      const allLogs = [];
+      for (const patient of patients) {
+        const logs = await storage.getEmergencyLogs(patient.id);
+        allLogs.push(...logs);
+      }
+      // Sort by timestamp descending (most recent first)
+      allLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      return res.json(allLogs);
+    }
+    
+    // If patient, get their own logs
     const patientId = await getTargetPatientId(req);
     if (!patientId) return res.json([]);
     const logs = await storage.getEmergencyLogs(patientId);
@@ -307,14 +322,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // Create emergency log
     const log = await storage.triggerEmergency(patientId);
     
-    // TODO: Send SMS to caretaker phone number (caretaker.phoneNumber)
-    // Emergency triggered successfully
-    
     res.status(201).json({ 
       ...log, 
       caretakerPhone: caretaker.phoneNumber,
-      message: 'Emergency triggered. Caretaker notified. Dial 112 for emergency services.'
+      caretakerName: caretaker.username,
+      message: 'Emergency triggered. Call emergency services (112) or your caretaker.'
     });
+  });
+
+  app.patch(api.emergency.resolve.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (req.user.role !== 'caretaker') return res.status(403).send('Only caretakers can resolve emergency logs');
+    
+    const logId = parseInt(req.params.id);
+    if (isNaN(logId)) return res.status(400).json({ message: 'Invalid log ID' });
+    
+    const resolved = await storage.resolveEmergencyLog(logId);
+    if (!resolved) return res.status(404).json({ message: 'Emergency log not found' });
+    
+    res.json(resolved);
   });
 
   return httpServer;

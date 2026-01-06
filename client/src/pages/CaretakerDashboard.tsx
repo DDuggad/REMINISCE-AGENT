@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Layout } from "@/components/ui/Layout";
-import { useMemories, useCreateMemory, useRoutines, useCreateRoutine, useMedications, useCreateMedication, useEmergencyLogs } from "@/hooks/use-resources";
+import { useMemories, useCreateMemory, useRoutines, useCreateRoutine, useMedications, useCreateMedication, useEmergencyLogs, useResolveEmergency } from "@/hooks/use-resources";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -474,7 +474,29 @@ function MedicationSection({ patientId }: { patientId: number }) {
 }
 
 function EmergencyLogSection() {
-  const { data: logs } = useEmergencyLogs();
+  const { data: logs, isLoading, error } = useEmergencyLogs();
+  const resolveEmergency = useResolveEmergency();
+  const { toast } = useToast();
+
+  console.log('Emergency logs:', { logs, isLoading, error });
+
+  const handleResolve = (logId: number) => {
+    resolveEmergency.mutate(logId, {
+      onSuccess: () => {
+        toast({
+          title: "Emergency Resolved",
+          description: "The emergency log has been marked as resolved.",
+        });
+      },
+      onError: (error: any) => {
+        toast({
+          title: "Failed to resolve",
+          description: error.message || "Please try again",
+          variant: "destructive",
+        });
+      },
+    });
+  };
 
   return (
     <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-6 col-span-1 lg:col-span-2">
@@ -482,45 +504,61 @@ function EmergencyLogSection() {
         <AlertTriangle className="w-5 h-5 text-red-500" />
         Emergency Log
       </h2>
-      <div className="bg-red-50/50 rounded-xl overflow-hidden">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-red-100/50 text-red-900 font-semibold">
-            <tr>
-              <th className="p-3">Time</th>
-              <th className="p-3">Status</th>
-              <th className="p-3 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-red-100">
-            {logs?.map((log) => (
-              <tr key={log.id}>
-                <td className="p-3 text-slate-700">
-                  {log.timestamp ? format(new Date(log.timestamp), "MMM d, h:mm a") : "Unknown"}
-                </td>
-                <td className="p-3">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${log.resolved ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800 animate-pulse'}`}>
-                    {log.resolved ? 'Resolved' : 'ACTIVE SOS'}
-                  </span>
-                </td>
-                <td className="p-3 text-right">
-                  {!log.resolved && (
-                    <button className="text-xs font-bold text-red-600 hover:text-red-800 underline">
-                      Mark Resolved
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {logs?.length === 0 && (
+      {isLoading && (
+        <div className="text-center py-8 text-slate-400">
+          Loading emergency logs...
+        </div>
+      )}
+      {error && (
+        <div className="text-center py-8 text-red-600">
+          Error loading logs: {error instanceof Error ? error.message : 'Unknown error'}
+        </div>
+      )}
+      {!isLoading && !error && (
+        <div className="bg-red-50/50 rounded-xl overflow-hidden">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-red-100/50 text-red-900 font-semibold">
               <tr>
-                <td colSpan={3} className="p-8 text-center text-slate-400">
-                  No emergency alerts recorded.
-                </td>
+                <th className="p-3">Time</th>
+                <th className="p-3">Status</th>
+                <th className="p-3 text-right">Action</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-red-100">
+              {logs?.map((log) => (
+                <tr key={log.id}>
+                  <td className="p-3 text-slate-700">
+                    {log.timestamp ? format(new Date(log.timestamp), "MMM d, h:mm a") : "Unknown"}
+                  </td>
+                  <td className="p-3">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${log.resolved ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800 animate-pulse'}`}>
+                      {log.resolved ? 'Resolved' : 'ACTIVE SOS'}
+                    </span>
+                  </td>
+                  <td className="p-3 text-right">
+                    {!log.resolved && (
+                      <button 
+                        onClick={() => handleResolve(log.id)}
+                        disabled={resolveEmergency.isPending}
+                        className="text-xs font-bold text-red-600 hover:text-red-800 underline disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {resolveEmergency.isPending ? 'Resolving...' : 'Mark Resolved'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {logs?.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="p-8 text-center text-slate-400">
+                    No emergency alerts recorded.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

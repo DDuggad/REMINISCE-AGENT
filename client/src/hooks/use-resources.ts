@@ -141,3 +141,16 @@ export function useTriggerEmergency() {
     },
   });
 }
+
+export function useResolveEmergency() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (logId: number) => {
+      const url = buildUrl(api.emergency.resolve.path, { id: logId });
+      const res = await fetch(url, { method: api.emergency.resolve.method });
+      if (!res.ok) throw new Error("Failed to resolve emergency log");
+      return api.emergency.resolve.responses[200].parse(await res.json());
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.emergency.list.path] }),
+  });
+}

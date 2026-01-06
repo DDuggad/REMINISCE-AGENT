@@ -138,6 +138,14 @@ export const api = {
         201: z.custom<EmergencyLog>(),
       },
     },
+    resolve: {
+      method: 'PATCH' as const,
+      path: '/api/emergency/:id/resolve',
+      responses: {
+        200: z.custom<EmergencyLog>(),
+        404: errorSchemas.notFound,
+      },
+    },
   },
 };
 
