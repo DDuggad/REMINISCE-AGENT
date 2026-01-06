@@ -4,6 +4,10 @@
 
 Built by Team ResQR | Powered by Microsoft Azure AI + Google Gemini
 
+🌐 **Live Demo:** [https://reminisce-agent.vercel.app/](https://reminisce-agent.vercel.app/)
+
+📡 **Backend API:** [https://reminisce-agent.onrender.com](https://reminisce-agent.onrender.com)
+
 ---
 
 ## ✨ Key Features
@@ -86,8 +90,9 @@ npm install
 Create a `.env` file in the root directory:
 
 ```env
-# Database
-DATABASE_URL=mongodb://localhost:27017/reminisce_ai
+# Database (Use MongoDB Atlas for production)
+DATABASE_URL=mongodb+srv://username:password@cluster.mongodb.net/reminisce_ai?retryWrites=true&w=majority
+DATABASE_NAME=reminisce_ai
 
 # Session Security
 SESSION_SECRET=your-secure-random-secret-at-least-32-characters-long
@@ -105,21 +110,22 @@ AZURE_SPEECH_REGION=your-azure-region
 GEMINI_API_KEY=your-gemini-api-key-from-ai-studio
 ```
 
-### 3. Start MongoDB
+### 3. Database Setup
 
-**Windows:**
+**Local Development:**
 ```bash
+# Windows
 net start MongoDB
-# or
-mongod
+
+# Linux/Mac
+sudo systemctl start mongod
 ```
 
-**Linux/Mac:**
-```bash
-sudo systemctl start mongod
-# or
-brew services start mongodb-community
-```
+**Production (MongoDB Atlas):**
+1. Create account at [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas)
+2. Create a new cluster
+3. Get connection string and add to `.env`
+4. Collections are created automatically on first run
 
 ### 4. Run the Application
 
@@ -244,7 +250,32 @@ Reminisce-AI/
 
 ---
 
-## 🔧 Development
+## � Deployment
+
+### Current Deployment Stack
+
+- **Frontend:** Vercel ([reminisce-agent.vercel.app](https://reminisce-agent.vercel.app/))
+- **Backend:** Render ([reminisce-agent.onrender.com](https://reminisce-agent.onrender.com))
+- **Database:** MongoDB Atlas (Cloud)
+
+### Deploy Your Own
+
+**Frontend (Vercel):**
+1. Push code to GitHub
+2. Import project at [vercel.com](https://vercel.com)
+3. Set Framework: Vite
+4. Set Output Directory: `dist/public`
+5. Add environment variable: `VITE_API_URL=your-backend-url`
+
+**Backend (Render):**
+1. Create Web Service at [render.com](https://render.com)
+2. Connect GitHub repository
+3. Use `render.yaml` for automatic configuration
+4. Add all environment variables from `.env`
+
+---
+
+## �🔧 Development
 
 ### Available Scripts
 
