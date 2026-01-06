@@ -70,7 +70,8 @@ export function useAuth() {
       if (!res.ok) throw new Error("Logout failed");
     },
     onSuccess: () => {
-      queryClient.setQueryData([api.auth.user.path], null);
+      // Clear ALL cache to prevent data leakage between users
+      queryClient.clear();
       setLocation('/');
     },
   });

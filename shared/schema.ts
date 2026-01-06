@@ -9,6 +9,7 @@ export interface User {
   password: string;
   role: string;
   caretakerId?: number;
+  phoneNumber?: string; // Caretaker phone number
 }
 
 export interface Memory {
@@ -16,9 +17,11 @@ export interface Memory {
   id: number;
   patientId: number;
   imageUrl: string;
-  description?: string;
-  aiQuestions?: string[]; // Array of questions
-  lastQuestionIndex?: number; // Track which question was shown last
+  description?: string; // Caretaker's description (not shown to patient)
+  aiQuestions?: string[]; // Array of 7-8 AI-generated questions
+  answers?: { date: string; answer: string }[]; // Patient's answers with timestamps
+  lastQuestionDate?: string; // Date when question was last changed (YYYY-MM-DD)
+  currentQuestionIndex?: number; // Index of today's question
   createdAt: Date;
 }
 
@@ -81,6 +84,7 @@ export const insertUserSchema = z.object({
   role: z.enum(["caretaker", "patient"]).default("caretaker"),
   caretakerId: z.number().optional(),
   caretakerUsername: z.string().optional(),
+  phoneNumber: z.string().optional(), // Caretaker phone number
 });
 
 export const insertMemorySchema = z.object({

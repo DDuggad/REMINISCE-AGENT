@@ -386,16 +386,32 @@ function RoutineSection({ patientId }: { patientId: number }) {
 }
 
 function MedicationSection({ patientId }: { patientId: number }) {
-  const { data: medications } = useMedications(patientId);
-  const createMed = useCreateMedication();
+  const { data: routines } = useRoutines(patientId);
+  const createRoutine = useCreateRoutine();
   const [name, setName] = useState("");
   const [time, setTime] = useState("");
+  const [dosage, setDosage] = useState("");
+
+  // Filter only medications from routines
+  const medications = routines?.filter(r => r.type === 'medication') || [];
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !time.trim()) return;
-    createMed.mutate({ patientId, name, time, taken: false }, {
-      onSuccess: () => { setName(""); setTime(""); }
+    createRoutine.mutate({ 
+      patientId, 
+      task: name, 
+      time, 
+      type: 'medication',
+      dosage: dosage || undefined,
+      frequency: 'daily',
+      isCompleted: false 
+    }, {
+      onSuccess: () => { 
+        setName(""); 
+        setTime(""); 
+        setDosage("");
+      }
     });
   };
 
@@ -410,14 +426,15 @@ function MedicationSection({ patientId }: { patientId: number }) {
         {medications?.map((med) => (
           <div key={med.id} className="flex items-center justify-between p-3 rounded-lg bg-indigo-50/50 border border-indigo-100">
             <div>
-              <p className="font-semibold text-slate-800 text-sm">{med.name}</p>
-              <div className="flex items-center gap-1 text-xs text-indigo-600 mt-1">
+              <p className="font-semibold text-slate-800 text-sm">{med.task}</p>
+              <div className="flex items-center gap-2 text-xs text-indigo-600 mt-1">
                 <Clock className="w-3 h-3" />
                 {med.time}
+                {med.dosage && <span className="text-slate-500">• {med.dosage}</span>}
               </div>
             </div>
-            <div className={`px-2 py-1 rounded text-xs font-bold ${med.taken ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-              {med.taken ? 'TAKEN' : 'PENDING'}
+            <div className={`px-2 py-1 rounded text-xs font-bold ${med.isCompleted ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+              {med.isCompleted ? 'TAKEN' : 'PENDING'}
             </div>
           </div>
         ))}
@@ -431,6 +448,12 @@ function MedicationSection({ patientId }: { patientId: number }) {
           placeholder="Medication name..."
           className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
         />
+        <input
+          value={dosage}
+          onChange={(e) => setDosage(e.target.value)}
+          placeholder="Dosage (e.g., 10mg, 2 tablets)..."
+          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+        />
         <div className="flex gap-2">
           <input
             type="time"
@@ -439,7 +462,7 @@ function MedicationSection({ patientId }: { patientId: number }) {
             className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
           />
           <button 
-            disabled={createMed.isPending}
+            disabled={createRoutine.isPending}
             className="px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium text-sm"
           >
             Add

@@ -13,6 +13,8 @@ export interface IStorage {
   // Scoped by patientId
   createMemory(memory: InsertMemory): Promise<Memory>;
   getMemories(patientId: number): Promise<Memory[]>;
+  getMemory(id: number): Promise<Memory | null>;
+  saveMemoryAnswer(memoryId: number, date: string, answer: string): Promise<Memory | null>;
 
   createRoutine(routine: InsertRoutine): Promise<Routine>;
   getRoutines(patientId: number): Promise<Routine[]>;
@@ -86,6 +88,53 @@ export class DatabaseStorage implements IStorage {
       .toArray();
   }
 
+  async getMemory(id: number): Promise<Memory | null> {
+    const db = await this.getDatabase();
+    return await db.collection<Memory>("memories").findOne({ id });
+  }
+
+  async saveMemoryAnswer(memoryId: number, date: string, answer: string): Promise<Memory | null> {
+    const db = await this.getDatabase();
+    
+    const memory = await db.collection<Memory>("memories").findOne({ id: memoryId });
+    if (!memory) return null;
+    
+    // Check if we need to move to next question (new day)
+    const today = new Date().toISOString().split('T')[0];
+    let currentIndex = memory.currentQuestionIndex || 0;
+    let lastQuestionDate = memory.lastQuestionDate;
+    
+    if (lastQuestionDate !== today && memory.aiQuestions) {
+      // New day, move to next question
+      currentIndex = (currentIndex + 1) % memory.aiQuestions.length;
+      lastQuestionDate = today;
+    }
+    
+    // Add or update answer for today
+    const answers = memory.answers || [];
+    const existingAnswerIndex = answers.findIndex(a => a.date === date);
+    
+    if (existingAnswerIndex >= 0) {
+      answers[existingAnswerIndex] = { date, answer };
+    } else {
+      answers.push({ date, answer });
+    }
+    
+    const result = await db.collection<Memory>("memories").findOneAndUpdate(
+      { id: memoryId },
+      { 
+        $set: { 
+          answers,
+          currentQuestionIndex: currentIndex,
+          lastQuestionDate
+        } 
+      },
+      { returnDocument: "after" }
+    );
+    
+    return result || null;
+  }
+
   async createRoutine(routine: InsertRoutine): Promise<Routine> {
     const db = await this.getDatabase();
     const id = await getNextSequence(db, "routines");
@@ -94,6 +143,9 @@ export class DatabaseStorage implements IStorage {
       patientId: routine.patientId,
       task: routine.task,
       time: routine.time,
+      frequency: routine.frequency,
+      type: routine.type,
+      dosage: routine.dosage,
       isCompleted: routine.isCompleted || false,
     };
     await db.collection<Routine>("routines").insertOne(newRoutine as any);

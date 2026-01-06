@@ -23,6 +23,7 @@ type AuthFormData = {
   password: string;
   role?: "caretaker" | "patient";
   caretakerUsername?: string;
+  phoneNumber?: string; // Caretaker phone number
 };
 
 export default function AuthPage() {
@@ -86,6 +87,18 @@ export default function AuthPage() {
           }
         }
 
+        // Client-side validation for caretaker phone number
+        if (data.role === "caretaker") {
+          if (!data.phoneNumber || data.phoneNumber.trim() === "") {
+            toast({
+              title: "Validation Error",
+              description: "Mobile number is required for caretakers",
+              variant: "destructive",
+            });
+            return;
+          }
+        }
+
         const registerData: any = { 
           username: data.username.trim(), 
           password: data.password, 
@@ -95,6 +108,11 @@ export default function AuthPage() {
         // Always send caretakerUsername if role is patient
         if (data.role === "patient") {
           registerData.caretakerUsername = caretakerUsername.trim();
+        }
+
+        // Always send phoneNumber if role is caretaker
+        if (data.role === "caretaker") {
+          registerData.phoneNumber = data.phoneNumber.trim();
         }
 
         await registerUser.mutateAsync(registerData);
@@ -272,16 +290,16 @@ export default function AuthPage() {
                             type="radio"
                             value="caretaker"
                             {...register("role")}
-                            className="peer sr-only"
+                            className="sr-only"
                           />
                           <div 
-                            className="p-4 rounded-xl border-2 peer-checked:shadow-lg hover:shadow-md transition-all text-center"
-                            style={{
-                              borderColor: colors.light,
-                              background: colors.white,
-                            }}
+                            className={`p-4 rounded-xl border-2 hover:shadow-md transition-all text-center ${
+                              role === 'caretaker' 
+                                ? 'border-blue-500 bg-blue-50' 
+                                : 'border-slate-200 bg-white'
+                            }`}
                           >
-                            <User className="w-6 h-6 mx-auto mb-2" style={{ color: colors.accent }} />
+                            <User className={`w-6 h-6 mx-auto mb-2 ${role === 'caretaker' ? 'text-blue-600' : 'text-blue-400'}`} />
                             <span className="font-semibold block" style={{ color: colors.primary }}>Caretaker</span>
                           </div>
                         </label>
@@ -290,21 +308,53 @@ export default function AuthPage() {
                             type="radio"
                             value="patient"
                             {...register("role")}
-                            className="peer sr-only"
+                            className="sr-only"
                           />
                           <div 
-                            className="p-4 rounded-xl border-2 peer-checked:shadow-lg hover:shadow-md transition-all text-center"
-                            style={{
-                              borderColor: colors.light,
-                              background: colors.white,
-                            }}
+                            className={`p-4 rounded-xl border-2 hover:shadow-md transition-all text-center ${
+                              role === 'patient' 
+                                ? 'border-blue-500 bg-blue-50' 
+                                : 'border-slate-200 bg-white'
+                            }`}
                           >
-                            <User className="w-6 h-6 mx-auto mb-2" style={{ color: colors.accent }} />
+                            <User className={`w-6 h-6 mx-auto mb-2 ${role === 'patient' ? 'text-blue-600' : 'text-blue-400'}`} />
                             <span className="font-semibold block" style={{ color: colors.primary }}>Patient</span>
                           </div>
                         </label>
                       </div>
                     </div>
+
+                    {/* Phone Number Field for Caretaker */}
+                    <AnimatePresence>
+                      {role === "caretaker" && (
+                        <motion.div
+                          key="phone-field"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="space-y-2 pt-4"
+                        >
+                          <label className="text-sm font-semibold" style={{ color: colors.primary }}>
+                            Mobile Number <span style={{ color: colors.danger }}>*</span>
+                          </label>
+                          <input
+                            type="tel"
+                            {...register("phoneNumber")}
+                            className="w-full px-4 py-3 rounded-xl border-2 focus:outline-none transition-all"
+                            style={{
+                              borderColor: colors.light,
+                              color: colors.primary,
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = colors.accent}
+                            onBlur={(e) => e.target.style.borderColor = colors.light}
+                            placeholder="+91 XXXXX XXXXX"
+                          />
+                          <p className="text-xs" style={{ color: `${colors.primary}80` }}>
+                            Used for emergency notifications and SMS alerts
+                          </p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     {/* Caretaker Username Field */}
                     <AnimatePresence>

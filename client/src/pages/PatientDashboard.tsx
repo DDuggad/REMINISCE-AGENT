@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Layout } from "@/components/ui/Layout";
 import { useMemories, useRoutines, useToggleRoutine, useTriggerEmergency } from "@/hooks/use-resources";
-import { Mic, Heart, Check, Play, AlertCircle, Volume2, X, ChevronLeft, ChevronRight, Image as ImageIcon, Clock, Pill } from "lucide-react";
+import { Mic, Heart, Check, Play, AlertCircle, Volume2, X, ChevronLeft, ChevronRight, Image as ImageIcon, Clock, Pill, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { User } from "@shared/schema";
 
 export default function PatientDashboard() {
   const { data: memories } = useMemories();
@@ -12,6 +14,22 @@ export default function PatientDashboard() {
   const toggleRoutine = useToggleRoutine();
   const triggerEmergency = useTriggerEmergency();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  
+  // Fetch current user and caretaker info
+  const { data: currentUser } = useQuery<User>({
+    queryKey: ["/api/user"],
+  });
+  
+  const { data: caretaker } = useQuery<User>({
+    queryKey: ["/api/user/caretaker", currentUser?.caretakerId],
+    enabled: !!currentUser?.caretakerId,
+    queryFn: async () => {
+      const res = await fetch(`/api/user/${currentUser?.caretakerId}`);
+      if (!res.ok) throw new Error("Failed to fetch caretaker");
+      return res.json();
+    },
+  });
   
   const [sosActive, setSosActive] = useState(false);
   const [showVoiceUI, setShowVoiceUI] = useState(false);
@@ -21,16 +39,30 @@ export default function PatientDashboard() {
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
+  const [medicationAlert, setMedicationAlert] = useState<any>(null);
+  const [timeDisplay, setTimeDisplay] = useState<{ type: 'time' | 'date', value: string } | null>(null);
 
-  // Get current question for each memory (rotate every 12 hours)
+  // States for voice recording and answer submission
+  const [recordingForMemoryId, setRecordingForMemoryId] = useState<number | null>(null);
+  const [answerText, setAnswerText] = useState("");
+  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
+
+  // Get current question for each memory using currentQuestionIndex
   const getTodayQuestion = (memory: any) => {
     if (!memory.aiQuestions || memory.aiQuestions.length === 0) {
       return memory.aiQuestion || "Tell me about this memory";
     }
-    // Rotate every 12 hours instead of daily
-    const hoursOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 12));
-    const questionIndex = hoursOfYear % memory.aiQuestions.length;
+    // Use currentQuestionIndex from backend (rotates daily)
+    const questionIndex = memory.currentQuestionIndex || 0;
     return memory.aiQuestions[questionIndex];
+  };
+
+  // Get today's answer if it exists
+  const getTodayAnswer = (memory: any) => {
+    if (!memory.answers || memory.answers.length === 0) return null;
+    const today = new Date().toISOString().split('T')[0];
+    const todayAnswer = memory.answers.find((a: any) => a.date === today);
+    return todayAnswer?.answer || null;
   };
 
   // Voice recognition setup
@@ -62,7 +94,23 @@ export default function PatientDashboard() {
               title: "Opening Memory Hub",
               description: `You have ${count} ${count === 1 ? 'memory' : 'memories'}`,
             });
-          } else if (command.includes('help') || command.includes('sos') || command.includes('emergency') || command.includes('caretaker') || command.includes('nurse') || command.includes('doctor') || command.includes('call')) {
+          } else if (command.includes('call') && (command.includes('caretaker') || command.includes('nurse') || command.includes('doctor'))) {
+            // Call caretaker directly
+            setShowVoiceUI(false);
+            if (caretaker?.phoneNumber) {
+              window.location.href = `tel:${caretaker.phoneNumber}`;
+              toast({
+                title: "📞 Calling Caretaker",
+                description: `Calling ${caretaker.username}...`,
+              });
+            } else {
+              toast({
+                title: "Cannot Call",
+                description: "Caretaker phone number not available",
+                variant: "destructive",
+              });
+            }
+          } else if (command.includes('help') || command.includes('sos') || command.includes('emergency')) {
             // Close voice UI and trigger emergency
             setShowVoiceUI(false);
             fetch('/api/emergency', {
@@ -88,19 +136,17 @@ export default function PatientDashboard() {
               description: "Showing your task list below",
             });
           } else if (command.includes('time')) {
-            // Keep voice assistant open
+            // Show big time display
+            setShowVoiceUI(false);
             const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-            toast({
-              title: "Current Time",
-              description: time,
-            });
+            setTimeDisplay({ type: 'time', value: time });
+            setTimeout(() => setTimeDisplay(null), 5000);
           } else if (command.includes('date') || command.includes('day')) {
-            // Keep voice assistant open
+            // Show big date display
+            setShowVoiceUI(false);
             const date = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-            toast({
-              title: "Today's Date",
-              description: date,
-            });
+            setTimeDisplay({ type: 'date', value: date });
+            setTimeout(() => setTimeDisplay(null), 5000);
           } else if (command.includes('listen') || command.includes('play') || command.includes('question') || command.includes('read')) {
             // Keep voice assistant open
             toast({
@@ -162,8 +208,43 @@ export default function PatientDashboard() {
     
     return () => {
       window.removeEventListener('playLatestQuestion', handlePlayQuestion);
+      // Cleanup audio on unmount
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.src = '';
+      }
     };
-  }, [memories]);
+  }, [memories, currentAudio]);
+
+  // Check for upcoming medications every minute
+  useEffect(() => {
+    const checkMedications = () => {
+      if (!routines) return;
+      
+      const now = new Date();
+      const medications = routines.filter(r => r.type === 'medication' && !r.isCompleted && r.time);
+      
+      for (const med of medications) {
+        const [hours, minutes] = med.time!.split(':').map(Number);
+        const medTime = new Date();
+        medTime.setHours(hours, minutes, 0, 0);
+        
+        const timeDiff = medTime.getTime() - now.getTime();
+        const minutesUntil = Math.floor(timeDiff / 60000);
+        
+        // Show alert if medication is due within 15 minutes
+        if (minutesUntil >= 0 && minutesUntil <= 15) {
+          setMedicationAlert(med);
+          break;
+        }
+      }
+    };
+    
+    checkMedications();
+    const interval = setInterval(checkMedications, 60000); // Check every minute
+    
+    return () => clearInterval(interval);
+  }, [routines]);
 
   const startVoiceRecognition = () => {
     const recognition = (window as any).voiceRecognition;
@@ -190,12 +271,115 @@ export default function PatientDashboard() {
 
   const handleSOS = () => {
     triggerEmergency.mutate(undefined, {
-      onSuccess: () => {
+      onSuccess: (data: any) => {
         setSosActive(true);
-        // In a real app, this would persist until resolved by caretaker
+        
+        // Dial emergency services (112)
+        window.location.href = 'tel:112';
+        
+        // Show caretaker notification
+        toast({
+          title: "🚨 Emergency Alert Sent!",
+          description: `Caretaker notified${data.caretakerPhone ? ` at ${data.caretakerPhone}` : ''}. Calling emergency services...`,
+          variant: "destructive",
+        });
+        
         setTimeout(() => setSosActive(false), 5000); 
       }
     });
+  };
+
+  const startAnswerRecording = (memoryId: number) => {
+    const recognition = (window as any).voiceRecognition;
+    if (recognition) {
+      setRecordingForMemoryId(memoryId);
+      setAnswerText(""); // Clear previous answer
+      
+      // Store the original handler to restore later
+      const originalOnResult = recognition.onresult;
+      const originalOnError = recognition.onerror;
+      
+      recognition.onresult = (event: any) => {
+        const speechResult = event.results[0][0].transcript;
+        setAnswerText(speechResult);
+        setRecordingForMemoryId(null);
+        
+        // Restore original handlers
+        recognition.onresult = originalOnResult;
+        recognition.onerror = originalOnError;
+        
+        toast({
+          title: "Answer recorded",
+          description: "You can edit your answer before submitting",
+        });
+      };
+      
+      recognition.onerror = () => {
+        setRecordingForMemoryId(null);
+        
+        // Restore original handlers
+        recognition.onresult = originalOnResult;
+        recognition.onerror = originalOnError;
+        
+        toast({
+          title: "Could not hear you",
+          description: "Please try again",
+          variant: "destructive",
+        });
+      };
+      
+      recognition.start();
+      toast({
+        title: "Listening...",
+        description: "Speak your answer now",
+      });
+    } else {
+      toast({
+        title: "Voice not supported",
+        description: "Your browser doesn't support voice recognition",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const submitAnswer = async (memoryId: number, answer: string) => {
+    if (!answer || answer.trim().length === 0) {
+      toast({
+        title: "Answer required",
+        description: "Please provide an answer",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmittingAnswer(true);
+    try {
+      const res = await fetch(`/api/memories/${memoryId}/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ answer: answer.trim() }),
+      });
+
+      if (!res.ok) throw new Error('Failed to save answer');
+
+      toast({
+        title: "Answer saved! 💚",
+        description: "Your memory has been recorded",
+      });
+      setAnswerText("");
+      // Refresh memories data without full page reload
+      await queryClient.invalidateQueries({ queryKey: ["/api/memories"] });
+    } catch (error) {
+      console.error('Error saving answer:', error);
+      toast({
+        title: "Failed to save",
+        description: "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmittingAnswer(false);
+    }
   };
 
   const handleListenToQuestion = async (text: string) => {
@@ -249,7 +433,7 @@ export default function PatientDashboard() {
   };
 
   return (
-    <Layout variant="patient">
+    <Layout variant="patient" caretakerName={caretaker?.username}>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 lg:gap-12 patient-view">
         
         {/* LEFT COLUMN: Memory Hub Button */}
@@ -453,7 +637,7 @@ export default function PatientDashboard() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-4 md:p-8 backdrop-blur-xl"
+            className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center p-4 md:p-8 backdrop-blur-xl overflow-y-auto"
           >
             {/* Cross Button */}
             <motion.button
@@ -478,33 +662,33 @@ export default function PatientDashboard() {
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.8, y: 20 }}
               transition={{ type: "spring", damping: 20 }}
-              className="max-w-2xl w-full"
+              className="max-w-2xl w-full my-auto py-8"
             >
               <motion.div
                 animate={isListening ? { scale: [1, 1.05, 1] } : {}}
                 transition={{ repeat: Infinity, duration: 2 }}
                 className={cn(
-                  "w-32 h-32 md:w-48 md:h-48 mx-auto rounded-full flex items-center justify-center mb-8 md:mb-12 shadow-[0_0_100px_rgba(59,130,246,0.5)] transition-all duration-500",
+                  "w-32 h-32 md:w-40 md:h-40 mx-auto rounded-full flex items-center justify-center mb-6 md:mb-8 shadow-[0_0_100px_rgba(59,130,246,0.5)] transition-all duration-500",
                   isListening 
                     ? "bg-gradient-to-tr from-red-500 to-pink-500" 
                     : "bg-gradient-to-tr from-blue-500 to-purple-500"
                 )}
               >
-                <Mic className="w-14 h-14 md:w-20 md:h-20 text-white" />
+                <Mic className="w-14 h-14 md:w-18 md:h-18 text-white" />
               </motion.div>
-              <h2 className="text-3xl md:text-5xl font-bold text-white mb-6 md:mb-8 text-center">
+              <h2 className="text-3xl md:text-4xl font-bold text-white mb-4 md:mb-6 text-center">
                 {isListening ? "I'm listening..." : "Voice Assistant"}
               </h2>
               {transcript && (
                 <motion.div 
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-white/10 px-6 md:px-8 py-3 md:py-4 rounded-2xl mb-6 md:mb-8"
+                  className="bg-white/10 px-6 md:px-8 py-3 md:py-4 rounded-2xl mb-4 md:mb-6"
                 >
-                  <p className="text-lg md:text-2xl text-white text-center">"{transcript}"</p>
+                  <p className="text-lg md:text-xl text-white text-center">"{transcript}"</p>
                 </motion.div>
               )}
-              <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-4 md:p-6 mb-8 md:mb-12">
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-4 md:p-6 mb-6 md:mb-8">
                 <p className="text-base md:text-lg text-blue-100 mb-3 text-center font-semibold">
                   Try saying:
                 </p>
@@ -513,7 +697,7 @@ export default function PatientDashboard() {
                     💭 "Show me my memories"
                   </div>
                   <div className="bg-white/10 rounded-lg p-3 text-white text-center">
-                    🆘 "Call caretaker" or "Help"
+                    🆘 "Call caretaker"
                   </div>
                   <div className="bg-white/10 rounded-lg p-3 text-white text-center">
                     📋 "List my tasks"
@@ -521,36 +705,27 @@ export default function PatientDashboard() {
                   <div className="bg-white/10 rounded-lg p-3 text-white text-center">
                     🕐 "What time is it?"
                   </div>
-                  <div className="bg-white/10 rounded-lg p-3 text-white text-center md:col-span-2">
+                  <div className="bg-white/10 rounded-lg p-3 text-white text-center">
                     🔊 "Listen to the question"
+                  </div>
+                  <div className="bg-white/10 rounded-lg p-3 text-white text-center">
+                    🚨 "Help" or "Emergency"
                   </div>
                 </div>
               </div>
-              <div className="flex flex-col sm:flex-row gap-4 md:gap-6 px-4">
+              <div className="flex flex-col gap-4 px-4">
                 <motion.button 
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={isListening ? stopVoiceRecognition : startVoiceRecognition}
                   className={cn(
-                    "flex-1 px-8 md:px-12 py-4 md:py-6 text-white text-xl md:text-2xl font-bold rounded-2xl transition-all shadow-lg",
+                    "w-full px-8 md:px-12 py-5 md:py-6 text-white text-xl md:text-2xl font-bold rounded-2xl transition-all shadow-lg",
                     isListening 
                       ? "bg-red-500 hover:bg-red-600 border-2 border-red-400 animate-pulse" 
                       : "bg-green-500 hover:bg-green-600 border-2 border-green-400"
                   )}
                 >
                   {isListening ? "🎤 Listening..." : "🎤 Start Speaking"}
-                </motion.button>
-                <motion.button 
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => {
-                    stopVoiceRecognition();
-                    setShowVoiceUI(false);
-                    setTranscript("");
-                  }}
-                  className="flex-1 sm:flex-none px-8 md:px-12 py-4 md:py-6 bg-white/10 border-2 border-white/30 text-white text-xl md:text-2xl font-bold rounded-2xl hover:bg-white/20 transition-colors"
-                >
-                  Close
                 </motion.button>
               </div>
             </motion.div>
@@ -617,14 +792,10 @@ export default function PatientDashboard() {
                   transition={{ delay: 0.3, duration: 0.4 }}
                   className="bg-white/95 backdrop-blur-sm p-4 md:p-8 rounded-2xl md:rounded-3xl border-2 md:border-4 border-[#1C4D8D]/30 shadow-2xl mb-6 md:mb-8 hover:shadow-[0_20px_60px_rgba(28,77,141,0.2)] transition-shadow duration-300"
                 >
-                  <p className="text-xl md:text-3xl font-bold text-[#0F2854] leading-tight mb-4 md:mb-6">
-                    {memories[currentMemoryIndex].description}
-                  </p>
-
                   {/* Today's Question */}
-                  <div className="pt-4 md:pt-6 border-t-2 md:border-t-4 border-[#1C4D8D]/20">
+                  <div>
                     <p className="text-sm md:text-xl text-[#1C4D8D] font-black mb-2 md:mb-3 uppercase tracking-wider">Think about this:</p>
-                    <div className="flex items-start gap-3 md:gap-6">
+                    <div className="flex items-start gap-3 md:gap-6 mb-6">
                       <p className="text-lg md:text-2xl text-[#0F2854] italic font-medium leading-relaxed flex-1">
                         {getTodayQuestion(memories[currentMemoryIndex])}
                       </p>
@@ -640,6 +811,60 @@ export default function PatientDashboard() {
                         <Volume2 className="w-7 h-7 md:w-10 md:h-10 text-white" />
                       </button>
                     </div>
+                  </div>
+
+                  {/* Voice Recording & Answer Section */}
+                  <div className="pt-4 md:pt-6 border-t-2 md:border-t-4 border-[#1C4D8D]/20">
+                    <p className="text-sm md:text-lg text-[#1C4D8D] font-bold mb-3 uppercase tracking-wide">Your Answer:</p>
+                    
+                    {getTodayAnswer(memories[currentMemoryIndex]) ? (
+                      <div className="bg-green-50 p-4 md:p-6 rounded-xl border-2 border-green-300">
+                        <p className="text-sm text-green-700 font-semibold mb-2">✓ You've answered this today!</p>
+                        <p className="text-base md:text-lg text-green-900 italic">
+                          "{getTodayAnswer(memories[currentMemoryIndex])}"
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Microphone Button */}
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => startAnswerRecording(memories[currentMemoryIndex].id)}
+                            disabled={recordingForMemoryId !== null || isSubmittingAnswer}
+                            className={cn(
+                              "flex-1 flex items-center justify-center gap-3 px-6 py-4 rounded-xl font-bold text-lg transition-all shadow-lg",
+                              recordingForMemoryId === memories[currentMemoryIndex].id
+                                ? "bg-red-500 text-white animate-pulse cursor-not-allowed"
+                                : "bg-gradient-to-r from-[#4988C4] to-[#1C4D8D] text-white hover:from-[#1C4D8D] hover:to-[#0F2854] hover:shadow-xl"
+                            )}
+                          >
+                            <Mic className="w-6 h-6" />
+                            {recordingForMemoryId === memories[currentMemoryIndex].id ? "Listening..." : "Record Answer"}
+                          </button>
+                        </div>
+
+                        {/* Answer Textarea */}
+                        <textarea
+                          value={answerText}
+                          onChange={(e) => setAnswerText(e.target.value)}
+                          placeholder="Your answer will appear here... You can also type directly."
+                          className="w-full px-4 py-3 border-2 border-[#4988C4]/30 rounded-xl focus:ring-4 focus:ring-[#4988C4]/20 focus:border-[#4988C4] outline-none text-base md:text-lg min-h-[120px] resize-none"
+                        />
+
+                        {/* Submit Button */}
+                        <button
+                          onClick={() => submitAnswer(memories[currentMemoryIndex].id, answerText)}
+                          disabled={!answerText.trim() || isSubmittingAnswer}
+                          className="w-full px-6 py-4 bg-gradient-to-r from-[#27AE60] to-[#229954] text-white font-black text-lg rounded-xl hover:from-[#229954] hover:to-[#1E8449] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingAnswer ? (
+                            <><Loader2 className="w-5 h-5 animate-spin" /> Saving...</>
+                          ) : (
+                            <><Check className="w-5 h-5" /> Submit Answer</>
+                          )}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
 
@@ -688,6 +913,87 @@ export default function PatientDashboard() {
                 </motion.div>
               </motion.div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Medication Alert Modal */}
+      <AnimatePresence>
+        {medicationAlert && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70"
+            onClick={() => setMedicationAlert(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.8, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.8, y: 50 }}
+              className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl shadow-2xl max-w-2xl w-full p-10 text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Pill className="w-24 h-24 mx-auto text-white mb-6 animate-bounce" />
+              <h2 className="text-5xl font-black text-white mb-4 uppercase tracking-wide">
+                Time for Medication!
+              </h2>
+              <p className="text-3xl font-bold text-white mb-6">
+                {medicationAlert.task}
+              </p>
+              {medicationAlert.dosage && (
+                <p className="text-2xl text-white/90 mb-6">
+                  Dosage: {medicationAlert.dosage}
+                </p>
+              )}
+              <div className="flex items-center justify-center gap-3 text-2xl text-white/90 mb-8">
+                <Clock className="w-8 h-8" />
+                {medicationAlert.time}
+              </div>
+              <button
+                onClick={() => {
+                  toggleRoutine.mutate(medicationAlert.id);
+                  setMedicationAlert(null);
+                }}
+                className="w-full bg-white text-indigo-600 text-2xl font-black py-6 px-8 rounded-2xl hover:bg-indigo-50 transition-all shadow-lg"
+              >
+                ✓ Mark as Taken
+              </button>
+              <button
+                onClick={() => setMedicationAlert(null)}
+                className="mt-4 text-white/80 hover:text-white text-lg font-semibold"
+              >
+                Remind me later
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Time/Date Display Modal */}
+      <AnimatePresence>
+        {timeDisplay && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60"
+            onClick={() => setTimeDisplay(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.5 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.5 }}
+              className="bg-gradient-to-br from-blue-500 to-cyan-600 rounded-3xl shadow-2xl max-w-3xl w-full p-16 text-center"
+            >
+              <Clock className="w-32 h-32 mx-auto text-white mb-8" />
+              <h2 className="text-5xl font-black text-white mb-6 uppercase tracking-wider">
+                {timeDisplay.type === 'time' ? 'Current Time' : "Today's Date"}
+              </h2>
+              <p className="text-8xl font-black text-white">
+                {timeDisplay.value}
+              </p>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

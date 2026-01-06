@@ -29,6 +29,19 @@ app.use(
 
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Global error handler for production
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error('Server error:', err);
+  
+  // Don't leak error details in production
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  
+  res.status(err.status || 500).json({
+    message: isDevelopment ? err.message : 'Internal server error',
+    ...(isDevelopment && { stack: err.stack })
+  });
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",

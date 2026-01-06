@@ -47,35 +47,50 @@ export async function analyzeImageWithVision(imageUrl: string): Promise<{ captio
   }
 }
 
-export async function generateMemoryQuestions(imageAnalysis: { caption: string; tags: string[] }, userDescription: string): Promise<string[]> {
+export async function generateMemoryQuestions(
+  imageAnalysis: { caption: string; tags: string[] }, 
+  userDescription: string,
+  previousQuestionsAndAnswers?: { question: string; answer: string }[]
+): Promise<string[]> {
   if (!genAI) {
     return [
       "Who is in this photo?",
       "When was this taken?",
       "What were you doing here?",
       "How did you feel in this moment?",
-      "What do you remember most about this day?"
+      "What do you remember most about this day?",
+      "What sounds or smells do you associate with this memory?",
+      "Who took this photo?",
+      "What happened right before this moment?"
     ];
   }
 
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
     
+    let previousContext = "";
+    if (previousQuestionsAndAnswers && previousQuestionsAndAnswers.length > 0) {
+      previousContext = "\n\nPrevious Questions and Patient's Answers:\n" + 
+        previousQuestionsAndAnswers.map(qa => `Q: ${qa.question}\nA: ${qa.answer}`).join("\n\n");
+    }
+    
     const prompt = `You are a compassionate dementia care assistant specializing in reminiscence therapy. Your role is to help elderly patients with memory challenges recall precious moments from their lives.
 
 Photo Analysis:
 - Visual Description: ${imageAnalysis.caption}
 - Detected Elements: ${imageAnalysis.tags.join(", ")}
-- Patient's Context: ${userDescription}
+- Caretaker's Context: ${userDescription}${previousContext}
 
-Generate exactly 5 memory-sparking questions that:
+Generate exactly 7-8 personalized memory-sparking questions that:
 1. Use simple, clear language (max 15 words each)
-2. Focus on emotions, people, and sensory details
-3. Are specific to this moment, not generic
-4. Help trigger episodic memories
-5. Are warm and encouraging in tone
+2. Focus on emotions, people, relationships, and sensory details
+3. Are specific to this photo and context, not generic
+4. Help trigger deep episodic memories
+5. Are warm, encouraging, and non-judgmental in tone
+6. Build upon previous answers if available to ask more thoughtful follow-ups
+7. Progress from simple recall to deeper emotional memories
 
-Format: Return only the 5 questions, numbered 1-5, one per line.`;
+Format: Return only the questions, numbered 1-8, one per line.`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -86,9 +101,9 @@ Format: Return only the 5 questions, numbered 1-5, one per line.`;
       .filter(q => q.trim().length > 0)
       .map(q => q.replace(/^[0-9]+[\.\)]\s*/, "").trim())
       .filter(q => q.length > 10)
-      .slice(0, 5);
+      .slice(0, 8);
     
-    if (questions.length >= 3) {
+    if (questions.length >= 5) {
       return questions;
     }
     
@@ -98,7 +113,10 @@ Format: Return only the 5 questions, numbered 1-5, one per line.`;
       "Where was this special moment?",
       "What were you celebrating or doing?",
       "How did this make you feel?",
-      "What else do you remember about this day?"
+      "What do you remember most about this day?",
+      "What sounds or smells do you remember?",
+      "Who took this photo and why?",
+      "What happened right before or after this?"
     ];
   } catch (error) {
     console.error("Gemini AI Error:", error);

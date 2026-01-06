@@ -7,9 +7,10 @@ import { cn } from "@/lib/utils";
 interface LayoutProps {
   children: ReactNode;
   variant?: "caretaker" | "patient";
+  caretakerName?: string;
 }
 
-export function Layout({ children, variant = "caretaker" }: LayoutProps) {
+export function Layout({ children, variant = "caretaker", caretakerName }: LayoutProps) {
   const { logout, user } = useAuth();
   const [location] = useLocation();
 
@@ -18,11 +19,18 @@ export function Layout({ children, variant = "caretaker" }: LayoutProps) {
     return (
       <div className="min-h-screen bg-background text-foreground patient-mode transition-colors duration-300">
         <header className="p-4 sm:p-6 border-b-4 border-primary/30 flex flex-col sm:flex-row items-center justify-between gap-4 bg-secondary">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-primary rounded-full flex items-center justify-center text-primary-foreground font-bold text-2xl sm:text-3xl">
-              {user?.username?.[0]?.toUpperCase()}
+          <div className="flex flex-col items-center sm:items-start gap-2 w-full sm:w-auto">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-primary rounded-full flex items-center justify-center text-primary-foreground font-bold text-2xl sm:text-3xl">
+                {user?.username?.[0]?.toUpperCase()}
+              </div>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold">Hello, {user?.username}</h1>
             </div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-display font-bold">Hello, {user?.username}</h1>
+            {caretakerName && (
+              <p className="text-base sm:text-lg text-muted-foreground ml-0 sm:ml-16 mt-1">
+                Your caretaker: <span className="font-semibold text-foreground">{caretakerName}</span>
+              </p>
+            )}
           </div>
           <button 
             onClick={() => logout.mutate()} 

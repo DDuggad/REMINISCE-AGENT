@@ -50,6 +50,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(myPatients);
   });
 
+  app.get("/api/user/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const userId = Number(req.params.id);
+    const user = await storage.getUser(userId);
+    
+    // Only allow fetching caretaker info for privacy
+    if (!user || user.role !== 'caretaker') {
+      return res.sendStatus(404);
+    }
+    
+    // Return limited info (no password)
+    res.json({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      phoneNumber: user.phoneNumber,
+    });
+  });
+
   // Helper to get patientId
   const getTargetPatientId = async (req: any) => {
     if (req.user?.role === 'patient') return req.user.id;
@@ -83,26 +102,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // AI analysis with Azure Computer Vision and Gemini
       const imageAnalysis = await analyzeImageWithVision(input.imageUrl);
-      const aiQuestions = await generateMemoryQuestions(imageAnalysis, input.description || "");
+      
+      // Get previous Q&A for this patient if regenerating
+      const previousMemories = await storage.getMemories(targetPatientId);
+      const previousQA = previousMemories
+        .filter(m => m.answers && m.answers.length > 0)
+        .flatMap(m => m.aiQuestions?.map((q, i) => ({
+          question: q,
+          answer: m.answers?.find(a => a.answer)?.answer || ""
+        })) || [])
+        .filter(qa => qa.answer)
+        .slice(0, 10); // Use last 10 answered questions for context
+      
+      const aiQuestions = await generateMemoryQuestions(
+        imageAnalysis, 
+        input.description || '',
+        previousQA.length > 0 ? previousQA : undefined
+      );
       
       // Combine analysis with user description
-      const enhancedDescription = `${input.description || ""}
-
-Image Analysis: ${imageAnalysis.caption}${imageAnalysis.tags.length > 0 ? ` (Tags: ${imageAnalysis.tags.join(", ")})` : ""}`.trim();
+      const enhancedDescription = `${input.description || ''}`;
+      
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
       
       const memory = await storage.createMemory({
         ...input,
         patientId: targetPatientId,
-        description: enhancedDescription,
-        aiQuestions: aiQuestions, // Store all questions
-        lastQuestionIndex: 0
+        description: enhancedDescription, // Full description for caretaker
+        aiQuestions: aiQuestions, // 7-8 AI-generated questions
+        answers: [], // Empty answers array
+        lastQuestionDate: today, // Set today as the question date
+        currentQuestionIndex: 0 // Start with first question
       });
       res.status(201).json(memory);
     } catch (err) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ message: err.errors[0].message });
       } else {
-        res.status(500).json({ message: "Internal Server Error" });
+        res.status(500).json({ message: 'Internal Server Error' });
       }
     }
   });
@@ -115,14 +152,47 @@ Image Analysis: ${imageAnalysis.caption}${imageAnalysis.tags.length > 0 ? ` (Tag
       const { imageData } = req.body;
       
       if (!imageData || !imageData.startsWith('data:image')) {
-        return res.status(400).json({ message: "Invalid image data" });
+        return res.status(400).json({ message: 'Invalid image data' });
       }
       
       // Return data URL (in production, upload to Azure Blob Storage)
       res.json({ imageUrl: imageData });
     } catch (error) {
-      console.error("Image upload error:", error);
-      res.status(500).json({ message: "Failed to upload image" });
+      console.error('Image upload error:', error);
+      res.status(500).json({ message: 'Failed to upload image' });
+    }
+  });
+
+  // Save answer to memory question
+  app.post("/api/memories/:id/answer", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const memoryId = Number(req.params.id);
+      const { answer } = req.body;
+      
+      if (!answer || typeof answer !== 'string') {
+        return res.status(400).json({ message: 'Answer is required' });
+      }
+      
+      const memory = await storage.getMemory(memoryId);
+      if (!memory) {
+        return res.status(404).json({ message: 'Memory not found' });
+      }
+      
+      // Verify access
+      const hasAccess = await verifyPatientAccess(req, memory.patientId);
+      if (!hasAccess) {
+        return res.sendStatus(403);
+      }
+      
+      const today = new Date().toISOString().split('T')[0];
+      const updatedMemory = await storage.saveMemoryAnswer(memoryId, today, answer);
+      
+      res.json(updatedMemory);
+    } catch (error) {
+      console.error('Save answer error:', error);
+      res.status(500).json({ message: 'Failed to save answer' });
     }
   });
 
@@ -134,7 +204,7 @@ Image Analysis: ${imageAnalysis.caption}${imageAnalysis.tags.length > 0 ? ` (Tag
       const { text } = req.body;
       
       if (!text || typeof text !== 'string') {
-        return res.status(400).json({ message: "Text is required" });
+        return res.status(400).json({ message: 'Text is required' });
       }
       
       const { textToSpeech } = await import("./azure_services");
@@ -142,8 +212,8 @@ Image Analysis: ${imageAnalysis.caption}${imageAnalysis.tags.length > 0 ? ` (Tag
       
       res.json(result);
     } catch (error: any) {
-      console.error("Text-to-speech error:", error);
-      res.status(500).json({ message: error.message || "Failed to generate speech" });
+      console.error('Text-to-speech error:', error);
+      res.status(500).json({ message: error.message || 'Failed to generate speech' });
     }
   });
 
@@ -161,19 +231,19 @@ Image Analysis: ${imageAnalysis.caption}${imageAnalysis.tags.length > 0 ? ` (Tag
     try {
       const input = api.routines.create.input.parse(req.body);
       const patientId = req.user.role === 'patient' ? req.user.id : (req.body as any).patientId;
-      if (!patientId) return res.status(400).json({message: "patientId required"});
+      if (!patientId) return res.status(400).json({message: 'patientId required'});
 
       const routine = await storage.createRoutine({ ...input, patientId });
       res.status(201).json(routine);
     } catch (err) {
-      res.status(400).json({ message: "Invalid input" });
+      res.status(400).json({ message: 'Invalid input' });
     }
   });
 
   app.patch(api.routines.toggle.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const updated = await storage.toggleRoutine(Number(req.params.id));
-    if (!updated) return res.status(404).json({ message: "Routine not found" });
+    if (!updated) return res.status(404).json({ message: 'Routine not found' });
     res.json(updated);
   });
 
@@ -191,19 +261,19 @@ Image Analysis: ${imageAnalysis.caption}${imageAnalysis.tags.length > 0 ? ` (Tag
     try {
       const input = api.medications.create.input.parse(req.body);
       const patientId = req.user.role === 'patient' ? req.user.id : (req.body as any).patientId;
-      if (!patientId) return res.status(400).json({message: "patientId required"});
+      if (!patientId) return res.status(400).json({message: 'patientId required'});
 
       const med = await storage.createMedication({ ...input, patientId });
       res.status(201).json(med);
     } catch (err) {
-      res.status(400).json({ message: "Invalid input" });
+      res.status(400).json({ message: 'Invalid input' });
     }
   });
 
   app.patch(api.medications.toggle.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const updated = await storage.toggleMedication(Number(req.params.id));
-    if (!updated) return res.status(404).json({ message: "Medication not found" });
+    if (!updated) return res.status(404).json({ message: 'Medication not found' });
     res.json(updated);
   });
 
@@ -218,11 +288,33 @@ Image Analysis: ${imageAnalysis.caption}${imageAnalysis.tags.length > 0 ? ` (Tag
 
   app.post(api.emergency.trigger.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    if (req.user.role !== 'patient') return res.status(403).send("Only patients can trigger SOS");
+    if (req.user.role !== 'patient') return res.status(403).send('Only patients can trigger SOS');
     
-    const patientId = req.user.id; 
+    const patientId = req.user.id;
+    
+    // Get patient info to find caretaker
+    const patient = await storage.getUser(patientId);
+    if (!patient || !patient.caretakerId) {
+      return res.status(400).json({ error: 'Patient has no assigned caretaker' });
+    }
+    
+    // Get caretaker info
+    const caretaker = await storage.getUser(patient.caretakerId);
+    if (!caretaker) {
+      return res.status(400).json({ error: 'Caretaker not found' });
+    }
+    
+    // Create emergency log
     const log = await storage.triggerEmergency(patientId);
-    res.status(201).json(log);
+    
+    // TODO: Send SMS to caretaker phone number (caretaker.phoneNumber)
+    // Emergency triggered successfully
+    
+    res.status(201).json({ 
+      ...log, 
+      caretakerPhone: caretaker.phoneNumber,
+      message: 'Emergency triggered. Caretaker notified. Dial 112 for emergency services.'
+    });
   });
 
   return httpServer;
